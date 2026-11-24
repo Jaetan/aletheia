@@ -12,6 +12,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **The Go Excel module is released with every release, and each Go tag publishes
+  what the release verified.** It is tagged `go/excel/vX.Y.Z` beside `go/vX.Y.Z`,
+  the tags Go looks for when a module lives in a subdirectory; each module's hashes
+  are recorded from the tree before the tags exist, and a tag whose module hashes
+  otherwise is refused.
+
 - **A predicate is an operand of until and release.** `Predicate` gains
   `until`, `release`, `metric_until` and `metric_release`, and a property's
   four take a predicate on their right, so Python relates two states as C++
@@ -2340,18 +2346,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   parent or a descriptor limit says the stat failed. Python already distinguished
   them, having no such check of its own.
 
-- **BREAKING (Go): both modules are named where the repository is, and the core
-  module's path carries its major version.** The core module is
-  `github.com/Jaetan/aletheia/go/v5` and the spreadsheet loader is
-  `github.com/Jaetan/aletheia/go/excel`; every import moves with them. The previous
-  path named a location this repository does not publish from, so a consumer typing
-  it reached whatever is served there rather than this code. Go accepts a major of
-  two or more only when the path ends in the matching suffix, so before this the
-  core module could not name any release after the first major. A consumer of
-  the distribution bundle follows the same printed recipe as before, with the new
-  path in it. A release now also tags `go/vX.Y.Z`, which is the tag Go looks for
-  when a module lives in a subdirectory: without it a requirement of a release
-  version resolves to nothing.
+- **BREAKING (Go): both modules are named where the repository is, and each
+  path carries the release's major.** The core module is
+  `github.com/Jaetan/aletheia/go/v6` and the spreadsheet loader is
+  `github.com/Jaetan/aletheia/go/excel/v6`; every import moves with them. The
+  previous path named a location this repository does not publish from, so a
+  consumer typing it reached whatever is served there rather than this code. Go
+  accepts a major of two or more only when the path ends in the matching suffix. A
+  consumer of the distribution bundle follows the same printed recipe as before,
+  with the new path in it.
 
 - **The Go and Rust predicate builders carry every predicate the kernel defines.**
   Both carried the five comparisons, where the kernel has eight: `Signal(name)` in Go

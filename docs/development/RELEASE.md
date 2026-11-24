@@ -71,12 +71,12 @@ git switch -c chore/prepare-vX.Y.Z
 ~~~
 **Gate:** on a fresh branch off an up-to-date `main`.
 
-### 2. Bump every version stamp
+### 2. Bump every version stamp, and record the Go modules' hashes
 
 Hand-edit the version in the package-metadata files, then refresh the
 `Cargo.lock` local-package entries (`rust/` and `rust/excel/`, below). These
-package files, plus the doc strings noted just below, are the version mentions
-you hand-edit; everything else derives from them.
+files, and the two `DISTRIBUTION.md` fields after them, are every version stamp
+you hand-edit.
 ~~~bash
 # 3-part "X.Y.Z":
 #   python/pyproject.toml      version = "X.Y.Z"
@@ -84,26 +84,48 @@ you hand-edit; everything else derives from them.
 #   rust/Cargo.toml            version = "X.Y.Z"
 #   rust/excel/Cargo.toml      version = "X.Y.Z"
 # 4-part "X.Y.Z.0":
-#   haskell-shim/aletheia.cabal    version: X.Y.Z.0   (the .so + SBOM read this)
+#   haskell-shim/aletheia.cabal    version: X.Y.Z.0   (the SBOM, nfpm and tools/go_release.py read this)
 #   shake.cabal                    version: X.Y.Z.0
-cargo update -p aletheia --manifest-path rust/Cargo.toml
-cargo update -p aletheia -p aletheia-excel --manifest-path rust/excel/Cargo.toml
+cargo update --offline -p aletheia --manifest-path rust/Cargo.toml
+cargo update --offline -p aletheia -p aletheia-excel --manifest-path rust/excel/Cargo.toml
 ~~~
-Also bump the version strings in the docs: the `**Version**:` field and
-`**Last Updated**:` in [`DISTRIBUTION.md`](DISTRIBUTION.md), its native-package
-example, and the `# Should output: X.Y.Z` line in [`BUILDING.md`](BUILDING.md).
+Also set the `**Version**:` and `**Last Updated**:` fields of
+[`DISTRIBUTION.md`](DISTRIBUTION.md) and its native-package example.
 
-**Everything else SSOT-derives — do not hand-edit:** the `.so` banner and the
-CycloneDX SBOM read the version from `haskell-shim/aletheia.cabal`; the
-`.deb`/`.rpm` version is injected into `packaging/nfpm.yaml` from that same field;
-Python's `aletheia.__version__` reads the installed package metadata (pyproject);
-Go derives its version from the git tag. Confirm nothing was missed with the
-**previous** version string:
+Then the Go modules. Go knows a module's version only by a tag (step 8), and a
+requiring module records that version only as the hash of the module's
+contents, in its `go.sum`; the public checksum database keeps the first hash it
+serves for a version. So the hashes are written now, from the tree, before any
+tag exists: the core module (`go/`) and the Excel module (`go/excel/`), which
+the others require, are released with every release, their paths carrying its
+major.
 ~~~bash
-rg -n -e '<old X.Y.Z>' -e '\bv<old X>\b'   # expect only CHANGELOG history + intentional prose
+python/.venv/bin/python -m tools.go_release move-major   # a MAJOR release: moves every tracked spelling of both paths
+python/.venv/bin/python -m tools.go_release write        # every requirement on them at vX.Y.Z, go.work and each go.sum to match
+~~~
+`write` commits the tree to a scratch repository, tags it there, and has go
+fetch the modules from it into a scratch module cache, so each `go.sum` line is
+the hash go computes for what the tag will publish; it tidies the Excel module
+before the command line, since a module's contents include its `go.sum`. A
+second run changes nothing. It refuses a released module whose path lacks the
+release's major, which `move-major` moves.
+
+**Everything else derives, do not hand-edit:** the CycloneDX SBOM and the
+`.deb`/`.rpm` version (injected into `packaging/nfpm.yaml`) read
+`haskell-shim/aletheia.cabal`; Python's `aletheia.__version__` reads the
+installed package metadata (pyproject); the Go modules have no version but
+their tags. A test fixture quoting a version is data, not a stamp. Confirm
+nothing was missed with the **previous** version string:
+~~~bash
+rg -n -e '<old X.Y.Z>' -e '\bv<old X>\b'   # expect only CHANGELOG history, test fixtures and deliberate prose
 ~~~
 **Gate:** no stray occurrence of the previous version outside `CHANGELOG.md`
-history and deliberate prose.
+history, test fixtures and deliberate prose. The sweep holds the rest: the
+`cargo build` steps build `--locked`, refusing a lockfile left behind;
+`check_docs` refuses a tracked spelling of a Go module's path at a major its
+`go.mod` does not declare; `go build (outside the workspace)` serves each Go
+module at vX.Y.Z from the tree only where the tree hashes as every `go.sum` line
+records, and otherwise fetches it from GitHub, which holds no such tag yet.
 
 ### 3. ⚑ CHANGELOG — cut, then commit (signed)
 
@@ -136,7 +158,9 @@ python/.venv/bin/pip install -e python/. --quiet
 python/.venv/bin/python3 -c 'import aletheia; print(aletheia.__version__)'   # X.Y.Z
 python/.venv/bin/python3 -m aletheia --version                              # aletheia X.Y.Z
 ~~~
-**Gate:** `.so` reports `aletheia-X.Y.Z.0`; `__version__` and the CLI report `X.Y.Z`.
+**Gate:** the build's `Shared library created` line names the build directory
+`aletheia-X.Y.Z.0`, cabal's for the new version; `__version__` and the Python CLI
+report `X.Y.Z`.
 
 ### 5. Run the release gates
 
@@ -173,33 +197,49 @@ gh run watch "$(gh run list --workflow=release.yml --branch main \
   --event workflow_dispatch -L1 --json databaseId -q '.[0].databaseId')" --exit-status
 ~~~
 Only its publish steps are `if: github.event_name == 'push'`-guarded, so a
-dispatch executes the entire pipeline minus publish — a faithful dry-run. Fix any
+dispatch executes the entire pipeline minus publish — a faithful dry-run. Its Go
+check rehearses the tag's: `tools/go_release.py check-publishable` holds the
+commit to the hashes step 2 recorded, and fetches each released module at the
+commit itself from GitHub, comparing what GitHub serves with what go computes
+from the commit. Fix any
 failure and **re-dispatch until green** (each dispatch also exercises steps a
 prior failure left unreached, e.g. the image build after a failed `.deb` smoke).
 **Gate:** the dispatch run is green. Residual it cannot cover: its publish
-steps and the exact `@refs/tags/vX.Y.Z` self-verify identity are first-exercised
-on the real tag (the cert-identity format is deterministic, so this is small but
-inherent to a first release).
+steps, the exact `@refs/tags/vX.Y.Z` self-verify identity and GitHub's answer
+for the tagged version are first-exercised on the real tag (the cert-identity
+format is deterministic, and the fetch is the one the dispatch made for the
+commit, so this is small but inherent to a release).
 
-### 8. ⚑ Tag the squashed HEAD → release.yml → DRAFT
+### 8. ⚑ Tag the squashed commit → release.yml → DRAFT
 
-Tag the **squashed `main` commit** from step 6 (not the pre-merge branch tip),
-signed; tag creation is admin-only (an admin bypass line on push is expected):
+Tag the **squashed `main` commit** from step 6, by its id, once `main`'s own CI
+run on it is green (its sweep built the Go modules against that commit's
+hashes); signed, and admin-only (an admin bypass line on push is expected):
 ~~~bash
-git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"
-git tag -s go/vX.Y.Z -m "Aletheia Go module vX.Y.Z"
-git push origin vX.Y.Z go/vX.Y.Z
+commit=$(git rev-parse origin/main)   # the squash commit of step 6
+python/.venv/bin/python -m tools.go_release check-commit "$commit"
+git tag -s vX.Y.Z -m "Aletheia vX.Y.Z" "$commit"
+git tag -s go/vX.Y.Z -m "Aletheia Go module vX.Y.Z" "$commit"
+git tag -s go/excel/vX.Y.Z -m "Aletheia Go Excel module vX.Y.Z" "$commit"
+git push origin vX.Y.Z go/vX.Y.Z go/excel/vX.Y.Z
 ~~~
-The second tag is what makes the Go module fetchable at that version: the
-module lives in `go/`, and Go looks for a tag carrying that directory's prefix,
-so a consumer requiring `github.com/Jaetan/aletheia/go/v5 vX.Y.Z` resolves
-`go/vX.Y.Z` and nothing else. The first tag alone leaves the requirement
-unresolvable. `release.yml` runs on the first.
+The `go/` tags make the Go modules fetchable at that version: each module lives
+in a directory of its own, and Go looks for a tag carrying that directory's
+prefix, so a consumer requiring `github.com/Jaetan/aletheia/go/v5 vX.Y.Z`
+resolves `go/vX.Y.Z` and nothing else. They publish the contents whose hashes
+step 2 recorded, and the checksum database keeps what it first serves, so a
+`go/` tag is never moved or made again. `check-commit` holds the commit to
+those hashes; the pre-push hook refuses a push of release tags unless they name
+one commit that holds them (`tools/go_release.py check-tags`); the tag ruleset
+lets an admin alone create, move or delete a `v*` or `go/*` tag. `release.yml`
+runs on the first tag.
 
 The tag push runs `release.yml`, which keyless-signs the tarball + `.deb` +
 `.rpm`, self-verifies every signed artifact against the workflow OIDC identity,
 validates the bundle across bindings, install-smokes the `.deb`, builds the
-runtime image, publishes a **DRAFT** Release, and pushes + signs the GHCR image.
+runtime image, holds the tagged commit and the Go modules GitHub serves at the
+tags to the recorded hashes, publishes a **DRAFT** Release,
+and pushes + signs the GHCR image.
 Publish is gated on the verification steps.
 *(Local fallback — releasing off CI: instead of tagging, run
 `ALETHEIA_COSIGN_TLOG=1 cabal run shake -- dist` with `ALETHEIA_COSIGN_KEY` set,
@@ -225,11 +265,16 @@ cosign verify-blob --certificate aletheia.tar.gz.crt --signature aletheia.tar.gz
 ~~~
 Do the same for the `.deb`/`.rpm`, and `cosign verify` the image (see
 [Verifying release artifacts](#verifying-release-artifacts-consumer-side)).
+Fetch the Go modules at the tags from GitHub, against the tagged commit's
+`go.sum` lines:
+~~~bash
+python/.venv/bin/python -m tools.go_release check-published X.Y.Z
+~~~
 Optionally set the Release notes from the `[X.Y.Z]` CHANGELOG section
 (`gh release edit vX.Y.Z --notes-file <section>`), then flip **draft →
 published** (`gh release edit vX.Y.Z --draft=false --latest`).
-**Gate:** every artifact verifies OK against the tag identity; the Release is
-published and marked latest.
+**Gate:** every artifact verifies OK against the tag identity, the Go modules
+hash as recorded; the Release is published and marked latest.
 
 ### 10. ⚑ GHCR one-time setup (first release with an image)
 
@@ -267,9 +312,14 @@ line existed before step 9.
 ### CI release (default) — push a tag
 
 ~~~bash
-# After bumping versions + CHANGELOG (see the checklist), tag and push:
-git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"
-git push origin vX.Y.Z
+# After bumping versions, recording the Go hashes and cutting the CHANGELOG
+# (see the runbook), tag the squash commit and push:
+commit=$(git rev-parse origin/main)
+python/.venv/bin/python -m tools.go_release check-commit "$commit"
+git tag -s vX.Y.Z -m "Aletheia vX.Y.Z" "$commit"
+git tag -s go/vX.Y.Z -m "Aletheia Go module vX.Y.Z" "$commit"
+git tag -s go/excel/vX.Y.Z -m "Aletheia Go Excel module vX.Y.Z" "$commit"
+git push origin vX.Y.Z go/vX.Y.Z go/excel/vX.Y.Z
 # release.yml builds, keyless-signs, self-verifies, and publishes a DRAFT
 # Release.  Review it on GitHub, then flip it from draft to published.
 #

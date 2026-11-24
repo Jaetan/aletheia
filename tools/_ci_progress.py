@@ -112,7 +112,7 @@ _DECLARED = {
     "go vet": _SILENT,
     "go build (no cgo)": _SILENT,
     "go test (no cgo)": _GO_TEST,
-    "go build (outside the workspace)": _SILENT,
+    "go build (outside the workspace)": _OURS,
     "clang-format": _SILENT,
     "cmake-lint": _SILENT,
     "clang-tidy configure": _SILENT,

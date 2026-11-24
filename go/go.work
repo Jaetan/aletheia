@@ -18,7 +18,9 @@
 // which the sweep's "go build (outside the workspace)" step holds: a module
 // coming to use what a required version lacks moves that requirement to a
 // later commit on main, with `go get <module>@<commit>` run under GOWORK=off
-// in the requiring module, and its replace here moves with it.
+// in the requiring module, and its replace here moves with it. A release
+// moves every requirement on the core and Excel modules to its own version,
+// and the replaces with them, through `python -m tools.go_release write`.
 //
 // This file is not part of the bundle a release builds, which carries the core
 // module's files alone, and a consumer of any module never sees it.

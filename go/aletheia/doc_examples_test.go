@@ -409,23 +409,79 @@ func docHarnessSetup(t *testing.T, root string) (yamlFix, excelFix string) {
 		t.Fatalf("missing excel fixture %s: %v", excelFix, err)
 	}
 
+	excelDir := filepath.Join(goDir, "excel")
+	corePath, coreVersion := moduleRequirement(t, goDir)
+	excelPath, excelVersion := moduleRequirement(t, excelDir)
 	goMod := fmt.Sprintf(`module aletheia_doc_harness
 
 go 1.26.0
 
 require (
-	github.com/Jaetan/aletheia/go/v5 v5.0.0
-	github.com/Jaetan/aletheia/go/excel v0.0.0
+	%[1]s %[2]s
+	%[3]s %[4]s
 )
 
-replace github.com/Jaetan/aletheia/go/v5 => %s
+replace %[1]s => %[5]s
 
-replace github.com/Jaetan/aletheia/go/excel => %s
-`, goDir, filepath.Join(goDir, "excel"))
+replace %[3]s => %[6]s
+`, corePath, coreVersion, excelPath, excelVersion, goDir, excelDir)
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
 	return yamlFix, excelFix
+}
+
+// moduleRequirement is what the harness's go.mod requires of the module whose
+// go.mod is in dir: the path it declares, at the lowest version Go accepts for
+// that path's major, which the replace beside the requirement makes the tree.
+func moduleRequirement(t *testing.T, dir string) (path, version string) {
+	t.Helper()
+	text, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatalf("read the go.mod in %s: %v", dir, err)
+	}
+	for line := range strings.Lines(string(text)) {
+		if rest, ok := strings.CutPrefix(line, "module "); ok {
+			path = strings.TrimSpace(rest)
+			return path, lowestVersion(path)
+		}
+	}
+	t.Fatalf("the go.mod in %s declares no module", dir)
+	return "", ""
+}
+
+// lowestVersion is the lowest version Go accepts for a module path: vN.0.0
+// for a path ending in the major suffix /vN, N two or more without a leading
+// zero, and v0.0.0 for any other.
+func lowestVersion(path string) string {
+	if i := strings.LastIndex(path, "/v"); i >= 0 {
+		major := path[i+2:]
+		if n, err := strconv.Atoi(major); err == nil && n >= 2 && !strings.HasPrefix(major, "0") {
+			return fmt.Sprintf("v%d.0.0", n)
+		}
+	}
+	return "v0.0.0"
+}
+
+// TestTheHarnessRequiresTheLowestVersionOfEachMajor holds the version the
+// harness's go.mod names for each module path: Go refuses a version whose
+// major the path does not carry, so a release moving a major moves it too.
+// The paths are a stand-in's: a release's move rewrites every spelling of this
+// repository's own.
+func TestTheHarnessRequiresTheLowestVersionOfEachMajor(t *testing.T) {
+	for path, want := range map[string]string{
+		"example.com/toy/go/v5":        "v5.0.0",
+		"example.com/toy/go/v12":       "v12.0.0",
+		"example.com/toy/go/excel":     "v0.0.0",
+		"example.com/toy/go/excel/v6":  "v6.0.0",
+		"example.com/toy/go/v1":        "v0.0.0",
+		"example.com/toy/go/v05":       "v0.0.0",
+		"example.com/toy/go/cmd/viper": "v0.0.0",
+	} {
+		if got := lowestVersion(path); got != want {
+			t.Errorf("lowestVersion(%q) = %q, want %q", path, got, want)
+		}
+	}
 }
 
 // refusalCodes is the code of each refusal the forwarding stand-in logged

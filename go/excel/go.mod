@@ -3,12 +3,12 @@
 // consumer driving checks from YAML or from code depends on the core module
 // alone, and one wanting the workbook loaders adds this on top.
 //
-// The core module is required below at the pseudo-version of a commit on main,
-// which GitHub serves, so a tool resolving this module outside the workspace
-// resolves it; ../go.work resolves it to this tree during development. Its path
-// carries the matching major-version suffix, without which Go refuses any major
-// above the first. This file carries no replace of its own: it would travel
-// with the module.
+// The core module is required below at a version GitHub serves, a release's
+// tag or the pseudo-version of a later commit on main, so a tool resolving this
+// module outside the workspace resolves it; ../go.work resolves it to this tree
+// during development. Its path carries the matching major-version suffix,
+// without which Go refuses any major above the first. This file carries no
+// replace of its own: it would travel with the module.
 module github.com/Jaetan/aletheia/go/excel
 
 go 1.26.0

@@ -555,6 +555,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_run_guarded.py",
     "--ignore=tests/test_git_toplevel.py",
     "--ignore=tests/test_git_repo.py",
+    "--ignore=tests/test_go_release.py",
     "--ignore=tests/test_scratch_worktree.py",
     "--ignore=tests/test_mutation_run_scope.py",
     "--ignore=tests/test_mutation_cpp_counts.py",

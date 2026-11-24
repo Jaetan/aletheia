@@ -485,6 +485,23 @@ jobs:
         if: ${{ !cancelled() && steps.dist.outcome == 'success' && steps.packages.outcome != 'failure' }}
         run: docker build -t aletheia:release -f Dockerfile.runtime .
 
+      # The Go modules' tags publish what the tagged commit's go.sum lines record,
+      # and Go's checksum database keeps the first hash it sees: on a tag push the
+      # tagged commit holds those hashes, and the released modules GitHub serves
+      # at the tags hash as recorded.  The dry run before the tag rehearses both
+      # on the commit: its recorded hashes where it prepares a release, and
+      # GitHub serving the commit itself.  Every fetch goes to GitHub alone, never
+      # through a module proxy.  Gates publish.
+      - name: Check the Go modules against their recorded hashes (gates publish)
+        if: ${{ !cancelled() }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            python/.venv/bin/python -m tools.go_release check-commit HEAD
+            python/.venv/bin/python -m tools.go_release check-published "${GITHUB_REF_NAME#v}"
+          else
+            python/.venv/bin/python -m tools.go_release check-publishable HEAD
+          fi
+
       - name: Publish the GitHub Release (draft; tag pushes only)
         if: github.event_name == 'push'
         env:

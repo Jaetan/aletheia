@@ -258,3 +258,77 @@ def test_a_cabal_file_stating_no_version_is_a_finding(tmp_path: Path) -> None:
     """A cabal file without a version line names no release, so the major is unchecked."""
     found = _run(tmp_path, _with(_CABAL, Prose("cabal-version: 3.0\nname: aletheia\n")))
     assert found == [Prose(f"haskell-shim/aletheia.cabal: states no version, so {_UNCHECKED}")]
+
+
+_CORE = "github.com/example/aletheia/go/v5"
+_WORK = RelPath("go/go.work")
+_EXCEL_MOD = RelPath("go/excel/go.mod")
+_TOOL_MOD = RelPath("go/cmd/tool/go.mod")
+_WORKSPACE: Mapping[RelPath, Prose] = MappingProxyType(
+    {
+        **_FILES,
+        _WORK: Prose("go 1.24.0\n\nuse (\n\t.\n\t./excel\n\t./cmd/tool\n)\n"),
+        _EXCEL_MOD: _module(GoModule("github.com/example/aletheia/go/excel")),
+        _TOOL_MOD: _module(GoModule("github.com/example/aletheia/go/cmd/tool")),
+    }
+)
+
+
+def test_a_spelling_at_the_modules_major_is_clean(tmp_path: Path) -> None:
+    """A file importing the core at the major its go.mod declares, ending a sentence, is clean."""
+    files = _with(RelPath("README.md"), Prose(f"Import {_CORE}/aletheia, or {_CORE}.\n"))
+    assert _run(tmp_path, files) == list[Prose]()
+
+
+def test_a_spelling_at_another_major_is_a_finding(tmp_path: Path) -> None:
+    """A spelling the major move missed names the file, the spelling and the module's path."""
+    files = _with(
+        RelPath("README.md"), Prose("go get github.com/example/aletheia/go/v4/aletheia\n")
+    )
+    assert _run(tmp_path, files) == [
+        Prose(
+            "README.md: spells github.com/example/aletheia/go/v4, where the module's path is "
+            + _CORE
+        )
+    ]
+
+
+def test_the_history_and_the_checksums_keep_their_majors(tmp_path: Path) -> None:
+    """CHANGELOG.md, .archive/ and a go.sum record the past or a hash, never a path now."""
+    old = Prose("github.com/example/aletheia/go/v4 v4.0.0 h1:x=\n")
+    files = {
+        **_FILES,
+        RelPath("CHANGELOG.md"): old,
+        RelPath(".archive/round.md"): old,
+        RelPath("go/excel/go.sum"): old,
+    }
+    assert _run(tmp_path, files) == list[Prose]()
+
+
+def test_each_workspace_module_is_held_to_its_own_path(tmp_path: Path) -> None:
+    """The longest module path owns a spelling: Excel at a major it lacks is a finding.
+
+    The command's path and a file name beside the core's path are no spelling of
+    the core.
+    """
+    text = Prose(
+        "github.com/example/aletheia/go/excel/v5 and github.com/example/aletheia/go/cmd/tool"
+        + " and github.com/example/aletheia/go.mod\n"
+    )
+    files = {**_WORKSPACE, RelPath("docs/GO.md"): text}
+    assert _run(tmp_path, files) == [
+        Prose(
+            "docs/GO.md: spells github.com/example/aletheia/go/excel/v5, where the module's path"
+            + " is github.com/example/aletheia/go/excel"
+        )
+    ]
+
+
+def test_a_workspace_module_it_cannot_read_leaves_the_spellings_unchecked(tmp_path: Path) -> None:
+    """go.work using a module whose go.mod is not tracked leaves every spelling unchecked."""
+    files = {path: text for path, text in _WORKSPACE.items() if path != _EXCEL_MOD}
+    assert _run(tmp_path, files) == [
+        Prose(
+            "go/excel/go.mod: not tracked, so the spellings of the Go modules' paths are unchecked"
+        )
+    ]

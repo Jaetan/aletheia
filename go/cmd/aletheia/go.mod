@@ -3,11 +3,12 @@
 // of excelize: a consumer of the core binding depends on neither this module
 // nor the Excel one.
 //
-// The core and Excel modules are required below at pseudo-versions of commits
-// on main, which GitHub serves, so a tool resolving this module outside the
-// workspace resolves it; ../../go.work resolves both to this tree during
-// development. The command is not in the bundle a release builds. This file
-// carries no replace of its own: it would travel with the module.
+// The core and Excel modules are required below at versions GitHub serves, a
+// release's tags or pseudo-versions of later commits on main, so a tool
+// resolving this module outside the workspace resolves it; ../../go.work
+// resolves both to this tree during development. The command is not in the
+// bundle a release builds. This file carries no replace of its own: it would
+// travel with the module.
 module github.com/Jaetan/aletheia/go/cmd/aletheia
 
 go 1.26.0
