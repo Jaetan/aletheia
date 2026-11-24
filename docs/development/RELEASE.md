@@ -217,6 +217,7 @@ run on it is green (its sweep built the Go modules against that commit's
 hashes); signed, and admin-only (an admin bypass line on push is expected):
 ~~~bash
 commit=$(git rev-parse origin/main)   # the squash commit of step 6
+python/.venv/bin/python -m tools.install_hooks   # the pre-push hook as the tree writes it
 python/.venv/bin/python -m tools.go_release check-commit "$commit"
 git tag -s vX.Y.Z -m "Aletheia vX.Y.Z" "$commit"
 git tag -s go/vX.Y.Z -m "Aletheia Go module vX.Y.Z" "$commit"
@@ -228,11 +229,12 @@ in a directory of its own, and Go looks for a tag carrying that directory's
 prefix, so a consumer requiring `github.com/Jaetan/aletheia/go/v5 vX.Y.Z`
 resolves `go/vX.Y.Z` and nothing else. They publish the contents whose hashes
 step 2 recorded, and the checksum database keeps what it first serves, so a
-`go/` tag is never moved or made again. `check-commit` holds the commit to
-those hashes; the pre-push hook refuses a push of release tags unless they name
-one commit that holds them (`tools/go_release.py check-tags`); the tag ruleset
-lets an admin alone create, move or delete a `v*` or `go/*` tag. `release.yml`
-runs on the first tag.
+`go/` tag is never moved or made again. `check-commit` holds the commit to those
+hashes; the pre-push hook refuses a push of release tags unless they name one
+commit that holds them (`tools/go_release.py check-tags`), once the installer
+has written the tree's hook over the copy in `.git/hooks`; the tag ruleset lets
+an admin alone create, move or delete a `v*` or `go/*` tag. `release.yml` runs
+on the first tag.
 
 The tag push runs `release.yml`, which keyless-signs the tarball + `.deb` +
 `.rpm`, self-verifies every signed artifact against the workflow OIDC identity,

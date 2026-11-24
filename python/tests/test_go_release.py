@@ -120,10 +120,22 @@ def _toy(root: Path, files: Mapping[RelPath, FileText]) -> Path:
     return root
 
 
+# The tagger an annotated tag records: a machine with no global identity (CI) refuses
+# a tag without one.
+_AS_TAGGER = (
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.com",
+    "-c",
+    "tag.gpgsign=false",
+)
+
+
 def _tag(root: Path, *names: TagName) -> None:
-    """Tag HEAD with each of ``names``, annotated, unsigned."""
+    """Tag HEAD with each of ``names``, annotated, unsigned, under a local identity."""
     for name in names:
-        _ = git(root, "-c", "tag.gpgsign=false", "tag", "-f", "-a", "-m", name, name)
+        _ = git(root, *_AS_TAGGER, "tag", "-f", "-a", "-m", name, name)
 
 
 def _ref_lines(root: Path, *names: TagName) -> list[RefLine]:
