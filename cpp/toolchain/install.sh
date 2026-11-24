@@ -4,7 +4,10 @@
 #
 # Installs the C++ toolchain on a CI runner: clang from apt.llvm.org, and
 # libstdc++ 15 from the Ubuntu toolchain PPA, since the libstdc++ 14 of
-# ubuntu-24.04 has no pipe form of std::ranges::to.
+# ubuntu-24.04 has no pipe form of std::ranges::to.  A job names here every
+# other package it takes from an archive too: a refresh of apt's lists after
+# this script reads the two sources it writes, and so waits on their servers
+# even for a package neither carries.
 #
 # Usage: cpp/toolchain/install.sh CACHE PACKAGE...
 #   CACHE    the directory the workflow's cache step restores and saves
@@ -15,8 +18,9 @@
 # would ask Launchpad's API for the PPA's key on every run, and a timeout there
 # fails the job before anything of the tree runs.  A CACHE holding packages is
 # installed by dpkg alone, so a warm run reaches no server either; apt refreshes
-# its lists only to fill an empty CACHE, or to resolve what dpkg could not
-# install from it (a dependency the runner image no longer carries).
+# its lists only to fill an empty CACHE, or to install what dpkg could not from
+# it: a dependency the runner image no longer carries, or a PACKAGE the CACHE
+# lacks because the image carried it when the CACHE was filled.
 #
 # An archive that moves to another signing key is refused at the next refresh,
 # apt naming the new key in a NO_PUBKEY error and exiting 100; a warm run makes
@@ -52,14 +56,22 @@ echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" |
 echo "deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu noble main" |
     sudo tee /etc/apt/sources.list.d/ubuntu-toolchain-r.list > /dev/null
 
-# Installs PACKAGE..., from CACHE when it holds them.
+# Prints each PACKAGE that is not installed, one a line.
+not_installed() {
+    local package
+    for package; do
+        [[ $(dpkg-query -W -f='${db:Status-Status}' "$package" 2> /dev/null) == installed ]] || echo "$package"
+    done
+}
+
+# Installs PACKAGE..., from CACHE when it holds them all.
 install_packages() {
-    local -a debs
+    local -a debs missing
     local status
     mkdir -p "$cache"
     shopt -s nullglob
     debs=("$cache"/*.deb)
-    if ((${#debs[@]} > 0)) && sudo dpkg -i "${debs[@]}"; then
+    if ((${#debs[@]} > 0)) && sudo dpkg -i "${debs[@]}" && [[ -z $(not_installed "$@") ]]; then
         return 0
     fi
     sudo apt-get update || {
@@ -75,7 +87,11 @@ install_packages() {
             return 0
         fi
     fi
+    # apt fixes what dpkg left broken only when named no package, and then
+    # installs a PACKAGE the CACHE lacked without upgrading the installed ones.
     sudo apt-get -f install -y
+    mapfile -t missing < <(not_installed "$@")
+    ((${#missing[@]} == 0)) || sudo apt-get install -y "${missing[@]}"
 }
 
 install_packages "$@"

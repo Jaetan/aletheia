@@ -328,6 +328,7 @@ def test_a_refused_latency_report_fails_the_run(
     )
 
 
+@pytest.mark.usefixtures("rts_up")
 @pytest.mark.parametrize("buffering", BUFFERINGS, ids=BUFFERING_IDS)
 @pytest.mark.parametrize("json_flag", _JSON_FLAGS, ids=_JSON_IDS)
 def test_a_refused_scaling_report_fails_the_run(
@@ -349,18 +350,24 @@ def test_a_refused_scaling_report_fails_the_run(
     )
 
 
+@pytest.mark.usefixtures("rts_up")
 @pytest.mark.parametrize("buffering", BUFFERINGS, ids=BUFFERING_IDS)
 @pytest.mark.parametrize("json_flag", _JSON_FLAGS, ids=_JSON_IDS)
 def test_a_refused_simplification_report_fails_the_run(
     monkeypatch: pytest.MonkeyPatch, json_flag: list[CommandWord], buffering: Buffering
 ) -> None:
-    """Simplification's report, tables or JSON, refused by stdout fails the run with status 1."""
+    """Simplification's report, tables or JSON, refused by stdout fails the run with status 1.
+
+    The run builds its formulas with the DSL, which the kernel checks, so the
+    runtime is started here rather than left to whichever test ran first.
+    """
     monkeypatch.setattr(simplification, "load_dbc", make_dbc)
     monkeypatch.setattr(simplification, "bench_formula", _fixed_formula_rate)
     words = [CommandWord("--quick"), *json_flag]
     _refused_run(monkeypatch, "simplification", simplification.main, words, buffering)
 
 
+@pytest.mark.usefixtures("rts_up")
 @pytest.mark.parametrize("buffering", BUFFERINGS, ids=BUFFERING_IDS)
 def test_a_refused_violations_report_fails_the_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, buffering: Buffering

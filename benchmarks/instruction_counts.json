@@ -1,36 +1,36 @@
 {
   "counts": {
     "cpp": {
-      "CAN 2.0B: Frame Building": 195359,
-      "CAN 2.0B: Signal Extraction": 60613,
-      "CAN 2.0B: Stream LTL (2 props)": 69406,
-      "CAN-FD:   Frame Building": 817985,
-      "CAN-FD:   Signal Extraction": 918853,
-      "CAN-FD:   Stream LTL (3 props)": 148101
+      "CAN 2.0B: Frame Building": 195328,
+      "CAN 2.0B: Signal Extraction": 60670,
+      "CAN 2.0B: Stream LTL (2 props)": 69473,
+      "CAN-FD:   Frame Building": 817417,
+      "CAN-FD:   Signal Extraction": 919623,
+      "CAN-FD:   Stream LTL (3 props)": 148144
     },
     "go": {
-      "CAN 2.0B: Frame Building": 197161,
-      "CAN 2.0B: Signal Extraction": 63843,
-      "CAN 2.0B: Stream LTL (2 props)": 71539,
-      "CAN-FD:   Frame Building": 820350,
-      "CAN-FD:   Signal Extraction": 927023,
-      "CAN-FD:   Stream LTL (3 props)": 150502
+      "CAN 2.0B: Frame Building": 197339,
+      "CAN 2.0B: Signal Extraction": 63930,
+      "CAN 2.0B: Stream LTL (2 props)": 71613,
+      "CAN-FD:   Frame Building": 820013,
+      "CAN-FD:   Signal Extraction": 931124,
+      "CAN-FD:   Stream LTL (3 props)": 150394
     },
     "python": {
-      "CAN 2.0B: Frame Building": 296205,
-      "CAN 2.0B: Signal Extraction": 156392,
-      "CAN 2.0B: Stream LTL (2 props)": 129464,
-      "CAN-FD:   Frame Building": 947233,
-      "CAN-FD:   Signal Extraction": 1181651,
-      "CAN-FD:   Stream LTL (3 props)": 209866
+      "CAN 2.0B: Frame Building": 296229,
+      "CAN 2.0B: Signal Extraction": 156510,
+      "CAN 2.0B: Stream LTL (2 props)": 129885,
+      "CAN-FD:   Frame Building": 946477,
+      "CAN-FD:   Signal Extraction": 1182470,
+      "CAN-FD:   Stream LTL (3 props)": 210252
     },
     "rust": {
-      "CAN 2.0B: Frame Building": 195131,
-      "CAN 2.0B: Signal Extraction": 60614,
-      "CAN 2.0B: Stream LTL (2 props)": 69803,
-      "CAN-FD:   Frame Building": 817314,
-      "CAN-FD:   Signal Extraction": 923425,
-      "CAN-FD:   Stream LTL (3 props)": 148582
+      "CAN 2.0B: Frame Building": 195144,
+      "CAN 2.0B: Signal Extraction": 60671,
+      "CAN 2.0B: Stream LTL (2 props)": 69864,
+      "CAN-FD:   Frame Building": 816766,
+      "CAN-FD:   Signal Extraction": 924199,
+      "CAN-FD:   Stream LTL (3 props)": 148662
     }
   },
   "frames": [
@@ -41,12 +41,12 @@
     "cpu": "Intel(R) Xeon(R) 6975P-C"
   },
   "toolchain": {
-    "c++": "Ubuntu clang version 23.1.6 (++20261108033755+c47d7823685a-1~exp1~20261108153854.96)",
+    "c++": "Ubuntu clang version 23.1.6 (++20261116013850+5b10d2d74929-1~exp1~20261116133903.98)",
     "ghc": "9.12.2",
     "glibc": "glibc 2.39",
     "go": "go1.27.4",
     "python": "3.14.10 (main, Oct 26 2026, 14:19:15) [GCC 13.3.0]",
-    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
     "valgrind": "valgrind-3.22.0"
   }
 }

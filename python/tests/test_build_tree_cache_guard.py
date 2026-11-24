@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from _workflows import CachePath, every_job
+from _workflows import CachePath, StepId, every_job
 
 if TYPE_CHECKING:
     from _workflows import JobSteps, Step
@@ -160,3 +160,48 @@ def test_only_the_whole_tree_sweep_saves_the_build_tree() -> None:
             f"{job.label} saves a build tree without running {THE_WHOLE_TREE_SWEEP} first, "
             "so the interfaces it saves are at most the runtime closure's"
         )
+
+
+# The step naming the installed clang build, which every build-tree key carries:
+# the tree's C objects are that clang's, and a key not naming it would hand a
+# job objects another clang build made, which a clean build of the same sources
+# does not reproduce (measured on PR 484: 20261108's objects under 20261116).
+CLANG_BUILD_ID = StepId("clang-build")
+CLANG_BUILD_OUTPUT = f"${{{{ steps.{CLANG_BUILD_ID}.outputs.build }}}}"
+CLANG_BUILD_RUN = (
+    'echo "build=$(clang-23 --version | sha256sum | cut -c1-16)" >> "${GITHUB_OUTPUT}"'
+)
+THE_TOOLCHAIN_INSTALL = "cpp/toolchain/install.sh ~/llvm-cache"
+
+
+def test_every_build_tree_key_names_the_clang_build_its_job_installed() -> None:
+    """Each key and restore prefix carries the naming step's output, taken after the install.
+
+    The naming step runs under the install's own condition, after it and
+    before the cache step, so the key names the clang the tree is built with.
+    """
+    held = 0
+    for job in every_job():
+        for at, step in enumerate(job.steps):
+            if not _caches_the_build_tree(step):
+                continue
+            given = step.get("with", {})
+            assert CLANG_BUILD_OUTPUT in given.get("key", ""), job.label
+            assert all(
+                CLANG_BUILD_OUTPUT in line
+                for line in given.get("restore-keys", "").splitlines()
+                if line.strip()
+            ), job.label
+            ids = [entry.get("id") for entry in job.steps]
+            assert ids.count(CLANG_BUILD_ID) == 1, job.label
+            named = ids.index(CLANG_BUILD_ID)
+            install = next(
+                index
+                for index, entry in enumerate(job.steps)
+                if THE_TOOLCHAIN_INSTALL in entry.get("run", "")
+            )
+            assert install < named < at, job.label
+            assert job.steps[named].get("run", "").strip() == CLANG_BUILD_RUN, job.label
+            assert job.steps[named].get("if") == job.steps[install].get("if"), job.label
+            held += 1
+    assert held > 0

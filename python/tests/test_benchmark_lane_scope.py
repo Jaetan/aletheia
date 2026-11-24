@@ -142,8 +142,10 @@ def _diff_naming(monkeypatch: pytest.MonkeyPatch, changed: tuple[RelPath, ...]) 
     """Make the diff reading name ``changed``, the words it asks git with pinned."""
 
     def fake_run_capture(argv: Sequence[CommandWord]) -> SimpleNamespace:
-        assert tuple(argv[-3:]) == _DIFF_WORDS
-        return SimpleNamespace(returncode=0, stdout="".join(f"{rel}\n" for rel in changed))
+        if tuple(argv[-3:]) == _DIFF_WORDS:
+            return SimpleNamespace(returncode=0, stdout="".join(f"{rel}\n" for rel in changed))
+        # The work tree's questions, as a checkout holding nothing beyond HEAD answers them.
+        return SimpleNamespace(returncode=0, stdout="")
 
     monkeypatch.setattr(_branch_diff, "run_capture", fake_run_capture)
 

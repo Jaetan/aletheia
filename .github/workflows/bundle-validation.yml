@@ -181,7 +181,34 @@ jobs:
           python/.venv/bin/pip install --upgrade pip
           python/.venv/bin/pip install -e 'python/.[dev]'
 
-      # Restore-only: the exact-sha tree is seeded by pr-full-ci's push:main
+      # UNSIGNED by design: no ALETHEIA_COSIGN_* is set, so `shake dist` skips
+      # signing with a warning.  This job validates staging + recipes + the
+      # bindings, not provenance — signing stays a release.yml concern, and
+      # the release-replay job below verifies a published signature.
+      - name: Cache clang-23 .debs (Clang is a large download)
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4
+      # ubuntu-24.04 pre-installs only clang ≤19, and clang-23 (the supported
+      # toolchain) compiles both the kernel library's C (haskell-shim/cabal.project)
+      # and the bundled C++ binding (cpp/CMakeLists.txt), so it is installed from
+      # apt.llvm.org before the build.  Same package set + cache key as
+      # pr-full-ci.yml so this workflow shares the deb cache seeded there.  The
+      # set brings fish: the bundle ships install.fish / env.fish, and with fish
+      # on PATH the validator also runs the fish installer, checks bash/fish
+      # recipe parity, and sources env.fish.
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
+
+      # The build tree's C objects are the installed clang's: its version names
+      # them in the build-tree key, so another clang build starts a clean tree.
+      - name: Name the installed clang build
+        id: clang-build
+        run: echo "build=$(clang-23 --version | sha256sum | cut -c1-16)" >> "${GITHUB_OUTPUT}"
+
+      # After the toolchain, whose clang build its key names.  Restore-only: the
+      # exact-sha tree is seeded by pr-full-ci's push:main
       # runs (the one workflow that saves it, same key + prefix), so
       # a weekly run restores the newest match and the `.so` build inside
       # `shake dist` is incremental instead of cold.
@@ -193,26 +220,9 @@ jobs:
             _build
             dist-newstyle
             haskell-shim/dist-newstyle
-          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-${{ github.sha }}
           restore-keys: |
-            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
-
-      # UNSIGNED by design: no ALETHEIA_COSIGN_* is set, so `shake dist` skips
-      # signing with a warning.  This job validates staging + recipes + the
-      # bindings, not provenance — signing stays a release.yml concern, and
-      # the release-replay job below verifies a published signature.
-      - name: Cache clang-23 .debs (Clang is a large download)
-        uses: actions/cache@v6
-        with:
-          path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v2
-      # ubuntu-24.04 pre-installs only clang ≤19, and clang-23 (the supported
-      # toolchain) compiles both the kernel library's C (haskell-shim/cabal.project)
-      # and the bundled C++ binding (cpp/CMakeLists.txt), so it is installed from
-      # apt.llvm.org before the build.  Same package set + cache key as
-      # pr-full-ci.yml so this workflow shares the deb cache seeded there.
-      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-
 
       - name: Build the distribution tarball (unsigned)
         # --keep-going: every gate dist needs reports, whichever fails first.
@@ -224,25 +234,14 @@ jobs:
       - name: Set up Go (bundle consumer toolchain)
         uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version-file: .go-version
           cache-dependency-path: |
             go/go.sum
             go/excel/go.sum
 
-      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
+      - name: Set up Rust (minimal, bundle consumer toolchain)
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
-          rustc --version && cargo --version
-
-      # The bundle ships install.fish / env.fish; with fish on PATH the
-      # validator also runs the fish installer, checks bash/fish recipe
-      # parity, and sources env.fish.
-      - name: Install fish (recipe-parity leg of the bundle validation)
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fish
+          tools/install_rust_toolchain.sh
 
       # FETCHCONTENT_BASE_DIR for the C++ consumer configure — keyed on
       # cpp/CMakeLists.txt, which pins the dependency versions (the bundled
@@ -304,16 +303,14 @@ jobs:
       - name: Set up Go (bundle consumer toolchain)
         uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version-file: .go-version
           cache-dependency-path: |
             go/go.sum
             go/excel/go.sum
 
-      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
+      - name: Set up Rust (minimal, bundle consumer toolchain)
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
-          rustc --version && cargo --version
+          tools/install_rust_toolchain.sh
 
       # From an empty directory rather than the shared package cache: this
       # weekly run refreshes apt's lists and installs the archives' newest
@@ -322,15 +319,10 @@ jobs:
       # when apt's NO_PUBKEY error does, and a break in the download path
       # otherwise.  A later step red points at a rebuild the cached runs have
       # not met when dpkg's `Unpacking <package> (<version>)` lines here name
-      # newer builds than head-dist's, which installs from the cache.
+      # newer builds than head-dist's, which installs from the cache; the list
+      # is the one every job installs, fish for the recipe-parity leg.
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: cpp/toolchain/install.sh "${RUNNER_TEMP}/llvm-cold" clang-23 clang-tidy-23 libstdc++-15-dev
-
-      - name: Install fish (recipe-parity leg of the bundle validation)
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fish
+        run: cpp/toolchain/install.sh "${RUNNER_TEMP}/llvm-cold" clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
       # Same key as the head-dist job: the latest release's dependency pins
       # may lag the checked-out cpp/CMakeLists.txt, in which case FetchContent

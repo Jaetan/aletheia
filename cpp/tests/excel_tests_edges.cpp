@@ -407,11 +407,16 @@ TEST_CASE("temp path: a scratch directory outlives its owner only while the owne
     auto const root = std::filesystem::temp_directory_path();
 
     SECTION("one whose lock is free is removed, contents and all") {
-        auto const dead = planted("dead");
+        // Planted inside this process's own scratch directory, whose lock it
+        // holds, and swept there: a test process starting meanwhile sweeps
+        // the system temp directory, where it would remove a dead directory
+        // planted at the top between its writing and its check.
+        auto const own_root = scratch_dir() / "reaped";
+        auto const dead = own_root / planted("dead").filename();
         std::filesystem::create_directories(dead);
         std::ofstream{dead / "left_behind.bin"} << "x";
         REQUIRE(std::filesystem::exists(dead / "left_behind.bin"));
-        aletheia::test::reap_dead_scratch_dirs();
+        aletheia::test::reap_dead_scratch_dirs(own_root);
         CHECK_FALSE(std::filesystem::exists(dead));
     }
 

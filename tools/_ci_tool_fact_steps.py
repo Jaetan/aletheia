@@ -14,12 +14,12 @@ step whose output it reads.  Four gates hold
 a fact about a mutation tool, what Mull's plugin emits and withholds, that the
 C++ slices union to the whole tree's census, how cargo-mutants deals its shards
 and what mutmut cannot mutate, and run only with the mutation lane, since each
-needs its lane's tool.
+needs its lane's tool.  One holds the machine itself to the Go and the Rust the
+tree pins, on every run.
 """
 
 from __future__ import annotations
 
-import shlex
 from typing import TYPE_CHECKING
 
 from tools._common import BUILD_STEP, CPP_CONFIGURE_STEP, CPP_LINT_LANE, GateName
@@ -37,6 +37,13 @@ CENSUS_BUILD_STEP = GateName("check-cpp-slices-census-build")
 
 def register_tool_fact_steps(runner: Runner) -> None:
     """Register the tool-fact gates, each in the lane that holds what it reads."""
+    # Each compiler's version report, read on every run, so a local sweep and
+    # a runner build with one Go and one Rust.
+    runner.step(
+        "check-toolchain-pins",
+        [runner.python, "-m", "tools.check_toolchain_pins"],
+        cwd=runner.repo_root,
+    )
     # Two dumps of the configuration, compile-free and read from the index's
     # file, so the pre-commit tier runs it too.
     runner.step(
@@ -102,16 +109,16 @@ def register_mutation_fact_steps(runner: Runner) -> None:
         cwd=runner.repo_root,
         lane="python",
     )
-    # The three slices' union is the whole tree's census.  Both steps follow
-    # the sweep in its own lane, because the sweep empties the commit's
-    # artifact directory before writing the slice reports there: the census
-    # of the unsliced tree is written beside them, then compared with them.
-    # The census's dry run runs the unmutated tests, which load the library the
-    # build writes; and the sweep runs whenever the build passed, whatever it
-    # then answers, so needing the build is needing the sweep to have emptied
-    # the directory.  The comparison needs the census, and not a sweep that
-    # passed, and refuses a report that is missing, naming it.
-    # The directory is named as the sweep names it, by the short hash of HEAD.
+    # The slices' union is the whole tree's census.  Both steps follow the
+    # sweep in its own lane, because the sweep empties the commit's artifact
+    # directory before writing its reports there: the census of the unsliced
+    # tree is written beside them.  The census's dry run runs the unmutated
+    # tests, which load the library the build writes; and the sweep runs
+    # whenever the build passed, whatever it then answers, so needing the build
+    # is needing the sweep to have emptied the directory.  A local sweep takes
+    # the tree whole and writes no slice's report, so the comparison builds and
+    # dry-runs each slice as its leg does; it needs the census, and not a sweep
+    # that passed.
     mutation = [step.lane for step in runner.registered_steps if step.name == MUTATION_STEP]
     if len(mutation) != 1:
         msg = f"{MUTATION_STEP!r} must be registered exactly once before the gates following it"
@@ -137,8 +144,7 @@ def register_mutation_fact_steps(runner: Runner) -> None:
     )
     runner.step(
         "check-cpp-slices-census",
-        f"{shlex.quote(runner.python)} -m tools.check_cpp_slices_census"
-        + " --compare benchmarks/mutation/$(git rev-parse --short HEAD)",
+        [runner.python, "-m", "tools.check_cpp_slices_census", "--slices"],
         cwd=runner.repo_root,
         lane=mutation[0],
         needs=(CENSUS_BUILD_STEP,),

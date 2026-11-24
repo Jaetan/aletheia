@@ -26,15 +26,19 @@ from typing import TYPE_CHECKING
 
 from tools._branch_diff import branch_changes
 from tools._ci_consumer_steps import register_consumer_steps
+from tools._ci_isolation_steps import register_isolation_steps
 from tools._ci_opt_in_steps import register_opt_in_steps
 from tools._ci_tool_fact_steps import register_mutation_fact_steps, register_tool_fact_steps
 from tools._common import (
     BUILD_STEP,
+    CARGO_TEST_BUILD_STEP,
+    CPP_BUILD_STEP,
     CPP_COMPILERS,
     CPP_CONFIGURE_STEP,
     CPP_DATABASE_TESTS,
     CPP_LINT_LANE,
     CPP_LINT_TREE,
+    EXCEL_CARGO_TEST_BUILD_STEP,
     PYTEST_SUITE_ARGS,
     GateName,
 )
@@ -147,16 +151,11 @@ FAST_STEPS: frozenset[str] = frozenset(
 )
 
 
-# The steps another step of the same lane needs, by the name both spell: the
-# build of the C++ test tree, the configure of the lint tree, and the build of
-# each crate's tests, which fetches the crates they resolve.
-CPP_BUILD_STEP = GateName("cpp build")
 # The staleness gate's step, which run() runs alone after every lane, since it
-# relinks the library the lanes read.
+# relinks the library the lanes read; and the configure of the lint tree, which
+# the lint lane's steps need by the name both spell.
 BUILD_STALENESS_STEP = GateName("build staleness")
 LINT_CONFIGURE_STEP = GateName("clang-tidy configure")
-CARGO_TEST_BUILD_STEP = GateName("cargo build (tests)")
-EXCEL_CARGO_TEST_BUILD_STEP = GateName("cargo build (tests, excel crate)")
 
 
 # The cgo-free build of every package, keeping nothing: a module holding one
@@ -167,7 +166,7 @@ GO_BUILD_NO_CGO = "CGO_ENABLED=0 go build -o /dev/null ./..."
 # The cgo-free run of every suite that can pass without the kernel, and the one
 # module it leaves out: the Excel loader's suite reads workbooks through the
 # kernel throughout.  The directory is the module's under the workspace, go/.
-GO_TEST_NO_CGO = "CGO_ENABLED=0 go test ./... -count=1"
+GO_TEST_NO_CGO = "CGO_ENABLED=0 go test ./... -count=1 -shuffle=on"
 GO_EXCEL_MODULE = Path("excel")
 
 # Every module built outside the workspace, as a consumer does: against the versions it requires.
@@ -438,7 +437,8 @@ def _run_binding_tests(runner: Runner) -> None:
     go_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
     runner.step(
         "go test -race",
-        in_every_go_module(f"ALETHEIA_LIB={go_lib} go test ./... -count=1 -race"),
+        # In an order of its own every run, the seed printed: no test leans on another.
+        in_every_go_module(f"ALETHEIA_LIB={go_lib} go test ./... -count=1 -race -shuffle=on"),
         cwd=runner.repo_root / "go",
         needs=(BUILD_STEP,),
     )
@@ -545,6 +545,8 @@ def _run_binding_tests(runner: Runner) -> None:
         cwd=runner.repo_root / "rust" / "excel",
         needs=(BUILD_STEP, EXCEL_CARGO_TEST_BUILD_STEP),
     )
+    # Each binding's tests alone, after the builds and the suite of its lane.
+    register_isolation_steps(runner)
     # The Rust rows of the dependency ledger name the licences cargo records.
     # It runs after both crates' test builds, which fetch every crate they
     # resolve into cargo's registry before compiling any, so the read is

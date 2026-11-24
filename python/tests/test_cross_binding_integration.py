@@ -93,6 +93,7 @@ class TestCrossBindingIntegration:
         assert response["has_errors"] is False  # canonical DBC is valid
         assert isinstance(response["issues"], list)
 
+    @pytest.mark.usefixtures("rts_up")
     def test_send_frame_ack_response_shape(self) -> None:
         """``send_frame`` on a non-violating frame returns ``AckResponse``."""
         prop = Signal("TestSignal").less_than(1000).always()
@@ -114,6 +115,7 @@ class TestCrossBindingIntegration:
         assert response["status"] == "ack"
         assert _ACK_RESPONSE_KEYS.issubset(set(response.keys()))
 
+    @pytest.mark.usefixtures("rts_up")
     def test_send_frame_violation_response_shape(self) -> None:
         """``send_frame`` on a violating frame returns ``PropertyBatchResponse``.
 

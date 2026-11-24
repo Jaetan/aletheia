@@ -52,6 +52,20 @@ other count by the end of its call fails it there.  A start naming no count
 asks the one running, which is the default.  The count held is the one a start
 asks: a ``-N`` that ``ALETHEIA_RTS_OPTS`` hands the runtime is not,
 and the warning does not compare it.
+
+No test reads a runtime an earlier test left up: once started, the runtime
+stays up for the process, so a test that reaches the kernel without starting it
+passes only in an order that put a starter first.  A runtime that is up and held
+by no backend is hidden from each test that does not ask for it with the
+``rts_up`` fixture (or ``unstarted``, which hands it a latch of its own): the
+test finds it down, the kernel refusing it, until it starts the runtime itself,
+``start_runtime`` or a client: that start is held to the default count as a
+first start, then finds the runtime up and keeps it, starting GHC no second
+time.  A test that ends holding more runtime references than it started with,
+a backend or a client it never closed, fails at its teardown,
+since a reference held keeps every later test from finding the runtime hidden.
+A runtime a module's or a session's fixture holds open is that fixture's
+users' own, and is not hidden from them.
 """
 
 from __future__ import annotations
@@ -441,10 +455,52 @@ def _hold_cores(cores: CoreCount) -> None:
 
 
 def _start(lib: ctypes.CDLL, cores: int | None) -> None:
-    # No count asks the one running, which the suite starts on the default.
+    # No count asks the one running, which the suite starts on the default.  A
+    # runtime an earlier test left up, hidden from this one, is held as not yet
+    # started, then shown, so the start finds it up rather than starting GHC again.
     if cores is not None:
         _hold_cores(CoreCount(cores))
+    _show_runtime()
     _real_start(lib, cores)
+
+
+# --- The runtime each test starts or asks for.
+
+# The fixtures a test asks for the runtime by: the suite's started one, and the
+# one handing a test a runtime latch nothing set.
+_RUNTIME_FIXTURES = frozenset({FixtureName("rts_up"), FixtureName("unstarted")})
+_RUNTIME_RULE = Prose(
+    "a test reads only the runtime it starts or asks for with the rts_up fixture,"
+    + " and gives back every runtime reference it takes"
+)
+# The runtime hidden from the test running, which a session run inside a test
+# shares: a start or a test's end shows it again.
+_HIDING = pytest.MonkeyPatch()
+
+
+def _show_runtime() -> None:
+    """Show the runtime an earlier test left up, hidden from the test running."""
+    _HIDING.undo()
+
+
+@pytest.fixture(autouse=True)
+def own_runtime(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Hide a runtime no backend holds from a test not asking for it; fail one left held."""
+    held = RTSState.refcount
+    asked = _RUNTIME_FIXTURES.intersection(FixtureName(name) for name in request.fixturenames)
+    if RTSState.initialized and held == 0 and not asked:
+        _HIDING.setattr(RTSState, "initialized", False)
+        _HIDING.setattr(RTSState, "lib", None)
+    try:
+        yield
+    finally:
+        _show_runtime()
+    if RTSState.refcount > held:
+        left = RTSState.refcount - held
+        pytest.fail(
+            f"{request.node.nodeid} ended holding {left} more runtime references than it"
+            + f" started with: {_RUNTIME_RULE}"
+        )
 
 
 # The audit hook, added once per interpreter: a hook cannot be removed, so it

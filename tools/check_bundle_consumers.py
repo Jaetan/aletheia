@@ -30,7 +30,6 @@ build fails, its output printed.
 
 from __future__ import annotations
 
-import argparse
 import os
 import shutil
 import sys
@@ -39,7 +38,15 @@ from pathlib import Path
 from typing import Literal, NamedTuple, NewType, cast
 
 from tools._branch_diff import branch_changes
-from tools._common import CommandWord, RelPath, emit, find_executable, run_capture
+from tools._common import (
+    CommandWord,
+    HelpText,
+    RelPath,
+    binding_parser,
+    emit,
+    find_executable,
+    run_capture,
+)
 from tools._progress import reporting
 from tools.bundle_rust_manifest import ManifestText, staged_manifest
 from tools.bundle_validate import (
@@ -192,10 +199,8 @@ _STEPS = {"go": go_steps, "cpp": cpp_steps, "rust": rust_steps}
 
 def main(argv: list[CommandWord] | None = None) -> ExitStatus:
     """Build the named binding's consumer against the tree where the branch reaches it."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    _ = parser.add_argument("--binding", choices=BINDINGS, required=True)
-    args = parser.parse_args(argv)
-    binding = cast("Binding", args.binding)
+    parser = binding_parser(BINDINGS, HelpText(__doc__ or ""))
+    binding = cast("Binding", parser.parse_args(argv).binding)
     if not in_scope(binding, branch_changes(REPO_ROOT)):
         emit(f"check_bundle_consumers: no change on the branch reaches the {binding} consumer")
         return ExitStatus(0)

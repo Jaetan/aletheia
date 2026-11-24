@@ -189,6 +189,12 @@ def test_every_step_declaring_our_reports_runs_a_tool_that_makes_them(
             0.72,
         ),
         ("check-cpp-slices-census-build", "progress: 1/1 check-cpp-slices-census", 1.0),
+        (
+            "check-cpp-slices-census",
+            "[ 72%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/property_check.cpp.o",
+            0.72,
+        ),
+        ("check-cpp-slices-census", "progress: 1/1 check-cpp-slices-census", 1.0),
         ("coverage python", "tests/test_x.py ........................... [ 25%]", 0.25),
         ("coverage python", "progress: 1/4 bindings", 0.25),
         ("coverage go", "progress: 1/4 bindings", 0.25),

@@ -219,15 +219,20 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v2
+          key: clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4
       # ubuntu-24.04 pre-installs only clang ≤19, and clang-23 (the supported
       # toolchain) compiles both the kernel library's C (haskell-shim/cabal.project)
       # and the bundled C++ binding (cpp/CMakeLists.txt), so it is installed from
       # apt.llvm.org before the build.  Same package set + cache key as
-      # pr-full-ci.yml so this workflow shares the deb cache seeded there.
+      # pr-full-ci.yml so this workflow shares the deb cache seeded there.  The
+      # set brings this job's other archive packages: rpm, for the `shake
+      # packages` .rpm payload self-check and the structural check below, and
+      # fish, with which the bundle validation also runs the fish installer,
+      # checks bash/fish recipe parity, and sources env.fish (the multi-shell
+      # divergence class the v4.0.0 review caught by hand).
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         id: clang
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
       - name: Build + keyless-sign the distribution tarball
         id: dist
@@ -286,14 +291,10 @@ jobs:
           )
 
       # ── Native packages (.deb + .rpm) over the validated payload ────────────
-      # The packaging tools install here, before the toolchain steps below add
-      # apt sources of their own, so a source those break cannot fail this
-      # step's apt-get update; the packages are built after the validation.
-      # nfpm is installed SHA-pinned exactly like cosign (pin recorded in
-      # packaging/nfpm.yaml's header comment — keep the two in sync).  rpm is
-      # installed for the `shake packages` .rpm payload self-check and the
-      # structural check below.
-      - name: Install nfpm (SHA-pinned) + rpm
+      # The packages are built after the validation.  nfpm is installed
+      # SHA-pinned exactly like cosign (pin recorded in packaging/nfpm.yaml's
+      # header comment — keep the two in sync); rpm comes with the toolchain.
+      - name: Install nfpm (SHA-pinned)
         if: ${{ !cancelled() && steps.dist.outcome == 'success' }}
         id: nfpm
         env:
@@ -308,8 +309,6 @@ jobs:
           sudo install -m 0755 /tmp/nfpm /usr/local/bin/nfpm
           rm /tmp/nfpm /tmp/nfpm.tar.gz
           nfpm --version
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends rpm
 
       # ── Bundle validation across the compiled bindings (gates publish) ──────
       # tools/bundle_validate.py unpacks dist/aletheia.tar.gz, runs the bundled
@@ -326,40 +325,26 @@ jobs:
         id: go
         uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version-file: .go-version
           cache-dependency-path: |
             go/go.sum
             go/excel/go.sum
 
-      # The runner ships rustup; a stable toolchain with the minimal profile is
+      # The runner ships rustup; the pinned toolchain with the minimal profile is
       # all the consumer build needs (no clippy/rustfmt here — the consumer is
       # built, not linted).
-      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
+      - name: Set up Rust (minimal, bundle consumer toolchain)
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
         id: rust
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
-          rustc --version && cargo --version
-
-      # The bundle ships install.fish / env.fish; with fish on PATH the
-      # validator also runs the fish installer, checks bash/fish recipe
-      # parity, and sources env.fish — the multi-shell divergence class the
-      # v4.0.0 review caught by hand.
-      - name: Install fish (recipe-parity leg of the bundle validation)
-        if: ${{ !cancelled() && steps.clang.outcome == 'success' }}
-        id: fish
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fish
+          tools/install_rust_toolchain.sh
 
       # FETCHCONTENT_BASE_DIR for the C++ consumer configure: without it every
       # run re-downloads nlohmann/json + yaml-cpp + OpenXLSX into the per-run
       # temp tree.  Keyed on cpp/CMakeLists.txt, which pins the dependency
       # versions (the bundled binding is staged from the same tree).
       - name: Cache C++ FetchContent deps (bundle consumer)
-        if: ${{ !cancelled() && steps.fish.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.clang.outcome == 'success' }}
         id: toolchains
         uses: actions/cache@v6
         with:

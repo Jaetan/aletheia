@@ -20,6 +20,7 @@ from tools import _determinism_guard
 from tools._determinism_guard import AuditEvent, MarkName
 from tools.check_test_determinism import SourceText
 
+from aletheia import RTSState
 from aletheia.common_types import CoreCount
 
 
@@ -595,3 +596,211 @@ def test_a_cores_mark_on_a_test_that_asks_the_default_fails(pytester: pytest.Pyt
     result.stdout.fnmatch_lines(
         ["*test_plant: its runtime_cores mark allows a core count it never asks"]
     )
+
+
+# --- The runtime each test starts or asks for.
+
+# What a leak's refusal says, after the count it found.
+_RUNTIME_RULE = (
+    "a test reads only the runtime it starts or asks for with the rts_up fixture,"
+    + " and gives back every runtime reference it takes"
+)
+# A first test that starts the runtime and gives it back, as any client does.
+_STARTER = """\
+from aletheia import AletheiaClient, Signal, start_runtime
+
+def test_starter():
+    with AletheiaClient():
+        pass
+"""
+
+
+def test_a_test_reading_a_runtime_an_earlier_test_left_up_fails(
+    pytester: pytest.Pytester,
+) -> None:
+    """A check built without starting the runtime finds it down, though a test before started it."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            _STARTER
+            + """
+def test_plant():
+    Signal("S").less_than(1).always()
+"""
+        ),
+    )
+    result.assert_outcomes(passed=1, failed=1)
+    result.stdout.fnmatch_lines(["*GHC runtime not initialized*"])
+
+
+def test_a_test_asking_for_the_runtime_or_starting_it_reads_it(pytester: pytest.Pytester) -> None:
+    """``rts_up`` and a test's own start each give it the runtime an earlier test left up."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            _STARTER
+            + """
+import pytest
+
+@pytest.fixture(scope="module")
+def rts_up():
+    start_runtime(1)
+
+@pytest.mark.usefixtures("rts_up")
+def test_asks():
+    Signal("S").less_than(1).always()
+
+def test_starts():
+    with AletheiaClient():
+        Signal("S").less_than(1).always()
+"""
+        ),
+    )
+    result.assert_outcomes(passed=3)
+
+
+def test_a_test_ending_with_a_runtime_reference_held_fails(pytester: pytest.Pytester) -> None:
+    """A backend never closed keeps its reference, and its test fails at teardown.
+
+    The inner test's reference outlives it, so this test gives it back itself.
+    """
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+from aletheia.client._backend import FFIBackend
+
+def test_plant():
+    FFIBackend()
+"""
+        ),
+    )
+    RTSState.release()
+    result.assert_outcomes(passed=1, errors=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*test_plant.py::test_plant ended holding 1 more runtime references than it"
+            + f" started with: {_RUNTIME_RULE}"
+        ]
+    )
+
+
+def test_a_hidden_runtime_reads_as_one_never_started(pytester: pytest.Pytester) -> None:
+    """Hidden, the runtime has no library either: its allocation count reads as before a start."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            _STARTER
+            + """
+from aletheia import allocated_bytes
+
+def test_plant():
+    assert allocated_bytes() is None
+"""
+        ),
+    )
+    result.assert_outcomes(passed=2)
+
+
+def test_another_count_asked_of_a_runtime_an_earlier_test_left_up_is_a_first_start(
+    pytester: pytest.Pytester,
+) -> None:
+    """Run first, the test would start the runtime on its count, so it is held as that start."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            _STARTER
+            + """
+import pytest
+
+@pytest.mark.runtime_cores("the warning is the claim")
+def test_plant():
+    with AletheiaClient(rts_cores=4):
+        pass
+"""
+        ),
+    )
+    result.assert_outcomes(passed=1, failed=1)
+    result.stdout.fnmatch_lines(
+        [f"*test_plant.py::test_plant would start the runtime on 4 cores: {_CORES_RULE}"]
+    )
+
+
+def test_a_test_s_own_start_finds_the_runtime_up_and_starts_ghc_no_second_time(
+    pytester: pytest.Pytester,
+) -> None:
+    """The start a hidden test makes keeps the runtime up rather than starting it again."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            _STARTER
+            + """
+from aletheia.client import _ffi
+
+def _second_start(*_args):
+    raise AssertionError("the runtime started a second time")
+
+def test_plant(monkeypatch):
+    monkeypatch.setattr(_ffi, "_start", _second_start)
+    start_runtime(1)
+    Signal("S").less_than(1).always()
+"""
+        ),
+    )
+    result.assert_outcomes(passed=2)
+
+
+def test_a_runtime_a_module_fixture_holds_is_its_users_own(pytester: pytest.Pytester) -> None:
+    """A client a module's fixture holds open is not hidden from the tests that use it."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+import pytest
+from aletheia import AletheiaClient, Signal
+
+@pytest.fixture(scope="module")
+def client():
+    with AletheiaClient() as opened:
+        yield opened
+
+def test_first(client):
+    pass
+
+def test_plant(client):
+    Signal("S").less_than(1).always()
+"""
+        ),
+    )
+    result.assert_outcomes(passed=2)
+
+
+def test_a_test_s_end_shows_the_tests_after_it_the_runtime_it_hid(
+    pytester: pytest.Pytester,
+) -> None:
+    """A test hidden from the runtime, starting none, leaves it up for a later ``rts_up`` user."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+import pytest
+from aletheia import Signal, start_runtime
+
+@pytest.fixture(scope="module")
+def rts_up():
+    start_runtime(1)
+
+@pytest.mark.usefixtures("rts_up")
+def test_first():
+    Signal("S").less_than(1).always()
+
+def test_quiet():
+    pass
+
+@pytest.mark.usefixtures("rts_up")
+def test_plant():
+    Signal("S").less_than(1).always()
+"""
+        ),
+    )
+    result.assert_outcomes(passed=3)

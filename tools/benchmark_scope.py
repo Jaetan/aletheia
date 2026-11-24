@@ -60,6 +60,11 @@ BENCHMARK_GLOBAL_PATHS = (
     "tools/_progress.py",
     "tools/__init__.py",
     ".github/workflows/benchmark.yml",
+    # The compilers every lane is built with, and their installs.
+    ".go-version",
+    "rust-toolchain.toml",
+    "tools/install_rust_toolchain.sh",
+    "cpp/toolchain/",
 )
 
 

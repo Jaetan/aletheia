@@ -3,8 +3,9 @@
 #
 # The cross-language benchmark on a GitHub-hosted runner (ubuntu-24.04,
 # 4-core / ~16 GB), with the supported toolchain pinned to the versions the
-# committed instruction counts rest on (clang-23, Python 3.14.10, Go 1.27.4,
-# Rust 1.98.1), in two legs on every pull request: throughput, which prints
+# committed instruction counts rest on (the clang-23 build of the one toolchain
+# cache, Python 3.14.10, the Go .go-version names and the Rust
+# rust-toolchain.toml names), in two legs on every pull request: throughput, which prints
 # each lane's frames per second and holds each lane's instructions per
 # operation, counted under valgrind, to the counts committed in
 # benchmarks/instruction_counts.json and to the budgets for its bus in
@@ -80,7 +81,6 @@ jobs:
       GHC_VERSION: '9.12.2'
       AGDA_VERSION: '2.9.0'
       STDLIB_VERSION: 'v2.4.1'
-      RUST_VERSION: '1.98.1'
       # Defaults apply on pull_request (no inputs); the PR gate is consistent
       # because every PR run uses these same values, matching the baseline.
       FRAMES: ${{ github.event.inputs.frames || '5000' }}
@@ -229,33 +229,39 @@ jobs:
           echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
           echo "standard-library" > ~/.agda/defaults
 
-      - name: Set up Go 1.27.4
+      - name: Set up Go (the version .go-version pins)
         if: env.LANE_MEASURES != '0'
         uses: actions/setup-go@v7
         with:
-          go-version: '1.27.4'
+          go-version-file: .go-version
           cache-dependency-path: |
             go/go.sum
             go/excel/go.sum
 
-      - name: Set up Rust ${{ env.RUST_VERSION }}
+      - name: Set up Rust (the channel rust-toolchain.toml pins)
         if: env.LANE_MEASURES != '0'
         run: |
-          set -euo pipefail
-          rustup toolchain install "${RUST_VERSION}" --profile minimal --no-self-update
-          rustup default "${RUST_VERSION}"
+          tools/install_rust_toolchain.sh
 
       # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
-      # toolchain) from apt.llvm.org.  Reuses pr-full-ci.yml's deb-cache key.
+      # toolchain) from apt.llvm.org, and ccache with it.  Reuses pr-full-ci.yml's
+      # deb-cache key and its package list, the one every cached job installs.
       - name: Cache clang-23 .debs (Clang is a large download)
         if: env.LANE_MEASURES != '0'
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v2
+          key: clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         if: env.LANE_MEASURES != '0'
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
+
+      # The build tree's C objects are the installed clang's: its version names
+      # them in the build-tree key, so another clang build starts a clean tree.
+      - name: Name the installed clang build
+        id: clang-build
+        if: env.LANE_MEASURES != '0'
+        run: echo "build=$(clang-23 --version | sha256sum | cut -c1-16)" >> "${GITHUB_OUTPUT}"
 
       # Restore the incremental build tree (Agda .agdai + MAlonzo .hs + the cabal
       # foreign-lib build under haskell-shim/dist-newstyle) so `cabal run shake
@@ -282,9 +288,9 @@ jobs:
             _build
             dist-newstyle
             haskell-shim/dist-newstyle
-          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-${{ github.sha }}
           restore-keys: |
-            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-
 
       - name: Build the FFI library (libaletheia-ffi.so)
         if: env.LANE_MEASURES != '0'
@@ -298,7 +304,6 @@ jobs:
         if: env.LANE_MEASURES != '0'
         run: |
           set -euo pipefail
-          command -v ccache >/dev/null || { sudo apt-get update && sudo apt-get install -y ccache; }
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
             echo "CCACHE_MAXSIZE=2G"
@@ -407,13 +412,17 @@ jobs:
       # The throughput leg's gate reads counts, not times: each lane of each
       # binding runs alone under valgrind's cachegrind at two frame counts, and
       # the difference over the frames is its instructions per operation
-      # (tools/benchmark_instructions.py).
+      # (tools/benchmark_instructions.py).  valgrind is not among the toolchain
+      # step's cached packages: it depends on libc6-dbg, which pins the image's
+      # libc6 exactly, so a cached copy stops installing once the image moves
+      # libc6.  It is installed over every apt source but the two the
+      # toolchain step writes, so it waits on neither archive.
       - name: Install valgrind (throughput)
         if: ${{ env.LANE_MEASURES != '0' && matrix.bench == 'throughput' && !cancelled() && steps.ready.outcome == 'success' }}
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y valgrind
+          cpp/toolchain/apt_without_toolchain.sh update
+          cpp/toolchain/apt_without_toolchain.sh install -y valgrind
 
       - name: Count each lane's instructions (throughput)
         if: ${{ env.LANE_MEASURES != '0' && matrix.bench == 'throughput' && !cancelled() && steps.measure.outcome == 'success' }}

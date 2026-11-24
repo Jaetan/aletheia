@@ -467,6 +467,7 @@ class TestNestingDepthBound:
             assert r.get("observed", 0) >= 65, r
 
 
+@pytest.mark.usefixtures("rts_up")
 class TestAtomCountBound:
     """The kernel bounds a property's atoms at ``MAX_ATOM_COUNT_PER_PROPERTY``.
 

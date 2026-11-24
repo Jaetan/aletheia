@@ -96,6 +96,9 @@ _DECLARED = {
     "check-bundle-consumer-go": _OURS,
     "check-bundle-consumer-cpp": _OURS,
     "check-bundle-consumer-rust": _OURS,
+    "check-tests-alone-go": _OURS,
+    "check-tests-alone-cpp": _OURS,
+    "check-tests-alone-rust": _OURS,
     "cargo build (tests)": _CARGO_BUILD,
     "cargo test": _CARGO_TEST,
     "cargo build (tests, excel crate)": _CARGO_BUILD,
@@ -136,6 +139,7 @@ _DECLARED = {
     "check-cpp-library-search": _OURS,
     "check-no-memory-citations": _OURS,
     "check-venv-convention": _OURS,
+    "check-toolchain-pins": _OURS,
     "check-cpp-index-loops": _OURS,
     "check-cpp-layout": _OURS,
     "check-precise-hints": _OURS,
@@ -167,7 +171,7 @@ _DECLARED = {
     "check-mutmut-witness": _OURS,
     "check-mull-plugin-facts": _OURS,
     "check-cpp-slices-census-build": either(_OURS, _CMAKE_BUILD),
-    "check-cpp-slices-census": _OURS,
+    "check-cpp-slices-census": either(_OURS, _CMAKE_BUILD),
     "actionlint": _SILENT,
 }
 

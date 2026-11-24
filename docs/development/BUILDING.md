@@ -26,6 +26,8 @@ This document is the step-by-step guide to building Aletheia from source, and it
 
 Aletheia is built and tested against the **latest stable** compilers, currently **Clang 23**, **Python 3.14**, and **Go 1.27**. Older releases may work, but they are not supported: the project tracks the latest stable toolchain and moves forward to the next release when it ships, rather than promising a minimum-version floor. g++ is not supported for the C++ binding (the sanitizer lanes need clang's `-fsanitize-ignorelist`, and UB can differ between compiler versions, so the shipped compiler is pinned). Two caveats are hard requirements, not "may work": Python 3.14 (PEP 758 syntax is used) and a C++23 standard library for the C++ binding (`<expected>` / `<format>`). CI builds the C++ binding against libstdc++ 15, taken from the toolchain PPA because ubuntu-24.04 ships 14; that is the same "latest stable" rule the compilers follow, and it is what the C++23 library surface is tested against.
 
+Every build uses one Go, one Rust and one clang. Go is the version `.go-version` names (1.27.4), which every workflow's `actions/setup-go` step reads; Rust is the channel `rust-toolchain.toml` names (1.100.0), which rustup takes for any `cargo` or `rustc` run inside the tree and `tools/install_rust_toolchain.sh` installs and makes rustup's default on a runner; clang is the LLVM upstream `cpp/toolchain/check_upstream.sh` records (23.1.6), and every job installs one package list, every job but the weekly release replay from one deb cache, so those jobs run the one build that cache holds (the replay installs from an empty directory, the archives' newest, as a canary). `run_ci`'s `check-toolchain-pins` step holds the machine it runs on to the same Go and Rust, `rustc` inside the tree and outside it alike, and reports a clang of another upstream without failing. A pin moves to the newest release in the change that moves it, which also refreshes the benchmark counts recorded against it ([BENCHMARKS.md](BENCHMARKS.md)).
+
 ## Prerequisites
 
 ### System requirements
@@ -210,21 +212,23 @@ Only needed if building the C++ binding (`cpp/`). Not required for Agda/Python d
 
 ### Go (for the Go binding only)
 
-**Version**: 1.26+ required (the `go.mod` floor; the project tracks the latest stable Go, currently 1.27, per the [toolchain support policy](#toolchain-support-policy))
+**Version**: the Go `.go-version` pins, per the [toolchain support policy](#toolchain-support-policy); a module consuming the binding needs 1.26+ (the `go.mod` floor)
 
 ~~~bash
 go version
-# Should output: go version go1.26 or higher
+# Should output: go version go1.26 or higher to build against the binding;
+# the tree itself builds with the version .go-version pins
 ~~~
 
 Only needed if building/testing the Go binding (`go/`). Not required for Agda/Python/C++ development.
 
 ### Rust (for the Rust binding only)
 
-**Version**: a Rust 2021-edition toolchain (`rustc` / `cargo`); CI runs the latest stable Rust.
+**Version**: the channel `rust-toolchain.toml` pins, per the [toolchain support policy](#toolchain-support-policy). rustup installs it on first use inside the tree; make it rustup's default too, so a program built outside the tree uses it.
 
 ~~~bash
-rustc --version && cargo --version
+rustup default 1.100.0
+rustc --version && cargo --version   # rustc 1.100.0, inside the tree and outside it
 ~~~
 
 Only needed if building/testing the Rust binding (`rust/`). Not required for Agda/Python/C++/Go development.

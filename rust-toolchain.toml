@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# The one Rust every build of the tree uses: rustup takes this channel for any
+# cargo or rustc run inside the tree, installing it on first use, and
+# tools/install_rust_toolchain.sh installs it and makes it the default on a
+# runner, so a program built outside the tree uses it too.
+# tools/check_toolchain_pins.py holds the machine it runs on to it.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"

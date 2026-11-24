@@ -387,7 +387,7 @@ jobs:
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'go'
         uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version-file: .go-version
           cache-dependency-path: |
             go/go.sum
             go/excel/go.sum
@@ -404,14 +404,11 @@ jobs:
       # by that version, as the coverage lane caches cargo-llvm-cov.
       # The Rust toolchain and cargo-mutants wait on the venv, not on the GHC
       # steps above them, which the shard facts gate below reads nothing of.
-      - name: Set up Rust (stable)
+      - name: Set up Rust
         if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && steps.venv.outcome == 'success' }}
         id: rust
         run: |
-          set -euo pipefail
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
-          rustc --version && cargo --version
+          tools/install_rust_toolchain.sh
       - name: Cache cargo-mutants
         if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && steps.rust.outcome == 'success' }}
         id: cargo-mutants
@@ -424,36 +421,30 @@ jobs:
         id: cargo-mutants-install
         run: cargo install cargo-mutants --version 27.1.0 --locked
 
+      # ubuntu-24.04 pre-installs only clang ≤19.  Every lane installs the one
+      # package list the other workflows' cached jobs install, from the one key
+      # they read: clang-23
+      # (the supported toolchain), which every C compile of the shim runs
+      # (haskell-shim/cabal.project names it) and mutation_cpp.py invokes
+      # explicitly, the LLVM-23 dev libraries the C++ legs build Mull from
+      # source against, and ccache; libstdc++-15-dev brings the gcc-15 and
+      # gcc-16 builds cpp/toolchain/check_upstream.sh holds the install to.
       - name: Cache clang-23 + LLVM-23-dev .debs (large download)
-        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0'
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-llvm23dev-libstdcxx15-noble-v2
-      # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
-      # toolchain) + the LLVM-23 dev libraries (needed to build Mull from source)
-      # from apt.llvm.org.  mutation_cpp.py invokes clang-23 explicitly.
+          key: clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4
       - name: Install C++ toolchain + LLVM-23 dev (apt.llvm.org)
-        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 libstdc++-15-dev llvm-23-dev libclang-23-dev
+        if: env.LANE_SWEEPS != '0'
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
-      # Every lane's suite loads the FFI library, and every C compile of the
-      # shim runs the compiler haskell-shim/cabal.project names, clang-23, which
-      # compiles include/aletheia.h as C23; the C++ legs install it with their
-      # LLVM libraries above, and every other lane installs the toolchain the
-      # other workflows' jobs do, under their key: a cache hit installs the
-      # cached .debs whatever the step asks for, so a key stands for one package
-      # list, and libstdc++-15-dev brings the gcc-15 and gcc-16 builds
-      # cpp/toolchain/check_upstream.sh holds the install to.
-      - name: Cache clang-23 .debs (the shim's C compiler)
-        if: env.LANE_SWEEPS != '0' && matrix.binding != 'cpp'
-        uses: actions/cache@v6
-        with:
-          path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v2
-      - name: Install the shim's C compiler (clang-23 from apt.llvm.org)
-        if: env.LANE_SWEEPS != '0' && matrix.binding != 'cpp'
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
+      # The build tree's C objects are the installed clang's: its version names
+      # them in the build-tree key, so another clang build starts a clean tree.
+      - name: Name the installed clang build
+        id: clang-build
+        if: env.LANE_SWEEPS != '0'
+        run: echo "build=$(clang-23 --version | sha256sum | cut -c1-16)" >> "${GITHUB_OUTPUT}"
 
       # No prebuilt Mull deb exists past LLVM 15, and the supported toolchain is
       # clang-23: UB can differ by compiler version, so the mutation lane MUST
@@ -474,7 +465,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/mull-bin
-          key: mull23-noble-clang23-llvm23dev-libstdcxx15-noble-v2-${{ hashFiles('tools/build_mull.sh', 'tools/mull/*.patch') }}
+          key: mull23-noble-clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4-${{ hashFiles('tools/build_mull.sh', 'tools/mull/*.patch') }}
       - name: Build Mull-23 from source (cache miss)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && steps.mull23.outputs.cache-hit != 'true'
         run: tools/build_mull.sh "${HOME}/mull-bin"
@@ -531,8 +522,7 @@ jobs:
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         run: |
           set -euo pipefail
-          command -v ccache >/dev/null || { sudo apt-get update && sudo apt-get install -y ccache; }
-          # The runner's ccache is whatever its image carries, and the
+          # The ccache is the one the toolchain step installed, and the
           # correctness of a cached mutation object rests entirely on
           # extra_files_to_hash: without it the plugin and the Mull
           # configuration are unhashed and a stale object is served for a
@@ -556,9 +546,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
-          key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v2-${{ github.sha }}
+          key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4-${{ github.sha }}
           restore-keys: |
-            ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v2-
+            ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4-
       # The counters travel with the cache, so a restored one carries every
       # earlier run's hits and misses; zeroed here, the eviction and the report
       # below read this run alone.  The run's start is taken here too, after
@@ -588,7 +578,7 @@ jobs:
       # Restore-only: pr-full-ci is the one saver, being the sweep that
       # type-checks every module, so the interfaces it saves are complete.
       # The C++ mutation compile has a cache of its own, per lane, set up
-      # below with the toolchain rather than here: its objects depend on the
+      # above with the toolchain rather than here: its objects depend on the
       # plugin and the Mull configuration, which this key does not carry.
       - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
         if: env.LANE_SWEEPS != '0'
@@ -600,9 +590,9 @@ jobs:
             _build
             dist-newstyle
             haskell-shim/dist-newstyle
-          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-${{ github.sha }}
           restore-keys: |
-            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-
 
       # The lane's setup ends here.  Each check after it waits on the steps
       # making what it reads rather than on every step before it, so one check's
@@ -688,12 +678,15 @@ jobs:
 
       # The whole tree's census, taken on the first leg once its slice is
       # swept: the `mutation merge` job below holds the three slices' union to
-      # it.  The gate reads the branch's diff against `main` and runs only
-      # where it moved what decides which mutants a slice carries and how they
-      # are named, the Mull pin, a patch, the configuration, the slicing or the
-      # gate, logging which.  Its cost is the unsliced tree's build, on this
-      # leg alone, inside its budget; the census leaves with the leg's reports
-      # in the upload below.
+      # it.  The step also holds the leg's own sweep report to a dry run of the
+      # slice's tree, since a local run compares the slices' dry runs where the
+      # merge compares their sweeps.  The gate reads the branch's diff against
+      # `main` and runs only where it moved what decides which mutants a slice
+      # carries and how they are named, the Mull pin, a patch, the
+      # configuration, the slicing or the gate, logging which.  Its cost is the
+      # unsliced tree's build and the slice's dry run, on this leg alone,
+      # inside its budget; the census leaves with the leg's reports in the
+      # upload below.
       - name: Whole-tree census for the slices check (when its pin moved)
         if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && matrix.stage == '1' && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
         run: python/.venv/bin/python3 -m tools.check_cpp_slices_census --census
@@ -739,7 +732,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
-          key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v2-${{ github.sha }}
+          key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4-${{ github.sha }}
 
   # ── The C++, Python, Go and Rust verdicts ───────────────────────────────────
   # The C++ legs, the Python and Go shards and the Rust jobs above each sweep

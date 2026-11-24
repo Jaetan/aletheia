@@ -16,13 +16,17 @@ reports an empty ``cache-hit`` which reads as a miss.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NewType, cast
 
 import pytest
 import yaml
 
-from tools import mutation_scope
+from tools import mutation_run, mutation_scope
+from tools._common import RelPath
+from tools.mutation_run import REPO_ROOT
+from tools.pin_scope import PinGate, rests_on
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -186,3 +190,45 @@ def test_a_binding_no_runner_has_is_refused() -> None:
     with pytest.raises(SystemExit) as refusal:
         _ = mutation_scope.main(["--binding", "haskell"])
     assert refusal.value.code == 2
+
+
+# A lane's step running a gate on a pinned tool's fact, and the binding its condition names.
+_PIN_GATE_RUN = re.compile(r"-m tools\.check_(\w+)")
+_LANE_BINDING = re.compile(r"matrix\.binding == '(\w+)'")
+
+# The binding a lane sweeps, as its condition names it.
+LaneBinding = NewType("LaneBinding", str)
+
+
+def test_every_path_a_lane_s_pinned_fact_gate_rests_on_sweeps_that_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lane's gate on a pinned tool's fact runs on GitHub only where that lane sweeps.
+
+    A local run runs the gate wherever the branch moves what it rests on, so
+    each path it rests on sweeps its lane, or the two runs give two verdicts on
+    one tree.  The gates and their lanes are read from the workflow's steps; a
+    directory a gate rests on is read as a file in it.
+    """
+    gates = {gate.value.replace("-", "_"): gate for gate in PinGate}
+    lane_gates: list[tuple[PinGate, LaneBinding]] = []
+    for step in _steps():
+        run = _PIN_GATE_RUN.search(str(step.get("run", "")))
+        if run is None or run.group(1) not in gates:
+            continue
+        binding = _LANE_BINDING.search(_condition(step))
+        assert binding is not None, step["name"]
+        lane_gates.append((gates[run.group(1)], LaneBinding(binding.group(1))))
+    assert PinGate.CPP_SLICES_CENSUS in {gate for gate, _binding in lane_gates}
+    idle: list[tuple[PinGate, RelPath]] = []
+    for gate, binding in lane_gates:
+        for scope in rests_on(gate):
+            path = RelPath(f"{scope.path}x" if scope.path.endswith("/") else scope.path)
+
+            def changed(_root: Path, path: RelPath = path) -> list[RelPath]:
+                return [path]
+
+            monkeypatch.setattr(mutation_run, "branch_changes", changed)
+            if not mutation_scope.lane_sweeps(binding, REPO_ROOT):
+                idle.append((gate, path))
+    assert not idle

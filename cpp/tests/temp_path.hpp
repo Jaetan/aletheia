@@ -87,18 +87,11 @@ private:
     bool held_;
 };
 
-/// Removes every scratch directory under the system temp directory whose
-/// owning process is gone, which is every one whose lock can be taken.  A run
-/// a signal ends never reaches static destruction and keeps its directory,
-/// which about one run in eight of a mutation sweep does, so without this
-/// the temp filesystem fills and a later run fails on whatever
-/// writes next rather than on the cause.  Nothing here throws or reports: a
-/// directory this cannot open is one it leaves alone.
-inline void reap_dead_scratch_dirs() {
+/// Removes every scratch directory directly under `root` whose owning process
+/// is gone, which is every one whose lock can be taken.  Nothing here throws
+/// or reports: a directory this cannot open is one it leaves alone.
+inline void reap_dead_scratch_dirs(std::filesystem::path const& root) {
     std::error_code ec;
-    auto const root = std::filesystem::temp_directory_path(ec);
-    if (ec)
-        return;
     for (std::filesystem::directory_iterator it{root, ec}, end; !ec && it != end;
          it.increment(ec)) {
         auto const& dir = it->path();
@@ -115,6 +108,18 @@ inline void reap_dead_scratch_dirs() {
             continue;
         std::filesystem::remove_all(dir, entry);
     }
+}
+
+/// Removes every dead scratch directory under the system temp directory.  A
+/// run a signal ends never reaches static destruction and keeps its directory,
+/// which about one run in eight of a mutation sweep does, so without this the
+/// temp filesystem fills and a later run fails on whatever writes next rather
+/// than on the cause.
+inline void reap_dead_scratch_dirs() {
+    std::error_code ec;
+    auto const root = std::filesystem::temp_directory_path(ec);
+    if (!ec)
+        reap_dead_scratch_dirs(root);
 }
 
 /// Waits until whoever holds `dir`'s lock lets go: the kernel's blocking

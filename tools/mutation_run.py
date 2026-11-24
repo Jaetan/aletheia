@@ -835,6 +835,15 @@ _GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
     "tools/_progress.py",  # how the harness reports its progress to the watchdog
     "tools/_resources.py",  # the CPU budget the C++ lane builds with
     "tools/__init__.py",  # the package every harness module is imported through
+    # The gates on a pinned tool's fact that the lanes run, and how every such
+    # gate reads the branch: GitHub runs one only where its lane sweeps, as a
+    # local run runs it, so a change to what it rests on sweeps the lanes.
+    "tools/pin_scope.py",
+    "tools/check_cargo_mutants_shards.py",
+    "tools/check_cpp_slices_census.py",
+    "tools/check_mull_plugin_facts.py",
+    "tools/check_mutmut_operators.py",
+    "tools/check_mutmut_witness.py",
     "docs/MUTATION_BENCH.yaml",  # the per-binding baselines the drift gate reads
     ".github/workflows/pr-heavy-lanes.yml",  # the lane definition
 )
