@@ -274,6 +274,10 @@ distRules = do
             , ":(exclude)go/aletheia/*_test.go", ":(exclude)go/aletheia/testdata" ]
         stageBinding "rust"
             [ "rust/Cargo.toml", "rust/Cargo.lock", "rust/README.md", "rust/LICENSE.md", "rust/src" ]
+        -- The crate's manifest names its benchmark example, which the bundle
+        -- leaves out with the rest of what is not the library, and cargo refuses
+        -- a manifest naming a target it cannot find: ship it without examples.
+        cmd_ pythonBin "-m" "tools.bundle_rust_manifest" (distBindings </> "rust" </> "Cargo.toml")
 
         -- Consumer entry scripts (self-locating; export ALETHEIA_LIB as an
         -- ABSOLUTE path).  install.{sh,fish} also print how to source

@@ -387,6 +387,22 @@ jobs:
             aletheia.tar.gz
           echo "Provenance OK — proceeding to consumer validation."
 
+      # The release's own consumer fixtures and scenario file, from its tag: the
+      # tree's fixtures follow the tree's API, which a published release
+      # predates, so they would test the tree rather than what a user of that
+      # release gets.  Red here then means the published release rotted.
+      - name: Take the release's own consumer fixtures (from its tag)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName --jq .tagName)
+          git fetch --no-tags origin --depth=1 "refs/tags/${tag}:refs/tags/${tag}"
+          mkdir -p "${RUNNER_TEMP}/release-fixtures"
+          git archive "${tag}" tools/bundle_validation examples/demo/vehicle.dbc |
+            tar -x -C "${RUNNER_TEMP}/release-fixtures"
+          echo "Validating with ${tag}'s own consumer fixtures."
+
       # System python3 (3.14 via setup-python): tools.bundle_validate is
       # stdlib-only, and this job never builds the repo, so creating the dev
       # venv would be pure overhead (precedent: pr-build-lanes.yml's
@@ -398,4 +414,6 @@ jobs:
           set -euo pipefail
           python3 -m tools.bundle_validate "${RUNNER_TEMP}/release/aletheia.tar.gz" \
             --require cpp,go,rust \
-            --fetchcontent-cache "${HOME}/fetchcontent-cache"
+            --fetchcontent-cache "${HOME}/fetchcontent-cache" \
+            --fixtures "${RUNNER_TEMP}/release-fixtures/tools/bundle_validation" \
+            --dbc "${RUNNER_TEMP}/release-fixtures/examples/demo/vehicle.dbc"

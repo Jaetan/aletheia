@@ -14,12 +14,15 @@ configure, none of which belong in the unit-test suite.
 
 from __future__ import annotations
 
+import inspect
 import os
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from _workflows import every_job
 
+from tools import bundle_validate
 from tools.bundle_validate import (
     BINDINGS,
     CONSUMER_RUNNERS,
@@ -193,6 +196,16 @@ class TestParseArgs:
         """--require populates the require set independently of --bindings."""
         cfg, _ = parse_args(["x.tar.gz", "--require", "cpp,rust"])
         assert cfg.require == frozenset({"cpp", "rust"})
+
+    def test_fixtures_default_to_the_tree_s(self) -> None:
+        """Without --fixtures the consumers are this tree's."""
+        cfg, _ = parse_args(["x.tar.gz"])
+        assert cfg.scenario.fixtures == FIXTURE_DIR
+
+    def test_fixtures_name_another_tree_s(self) -> None:
+        """--fixtures points the consumers at a release's own, as the replay job takes them."""
+        cfg, _ = parse_args(["x.tar.gz", "--fixtures", "/release/tools/bundle_validation"])
+        assert cfg.scenario.fixtures == Path("/release/tools/bundle_validation")
 
     def test_unknown_binding_rejected(self) -> None:
         """An unknown consumer name is a usage error, not a silent no-op."""
@@ -413,3 +426,35 @@ def test_a_consumer_that_cannot_run_is_one_more_named_failure(
     assert rust.call_count == 1
     assert "the C++ consumer did not configure" in str(refused.value)
     assert "go: its consumer could not run: " in str(refused.value)
+
+
+class TestReleaseReplay:
+    """The weekly replay validates the latest release with that release's own consumers."""
+
+    def test_every_consumer_runner_reads_the_configured_fixtures(self) -> None:
+        """No runner reads this tree's fixtures directly, so --fixtures reaches all three."""
+        for runner in CONSUMER_RUNNERS.values():
+            source = inspect.getsource(runner)
+            assert "FIXTURE_DIR" not in source, runner.__name__
+            assert "cfg.scenario.fixtures" in source, runner.__name__
+
+    def test_the_self_test_validates_with_the_configured_scenario(self) -> None:
+        """Each corrupted copy is validated with the run's own fixtures and scenario."""
+        module = inspect.getsource(bundle_validate)
+        corruption = module[module.index("def _run_corruption(") :]
+        corruption = corruption[: corruption.index("\ndef ")]
+        assert "scenario=cfg.scenario," in corruption
+
+    def test_the_replay_job_passes_the_release_tag_s_fixtures(self) -> None:
+        """The job takes the fixtures and the scenario from the release's tag and passes both."""
+        (job,) = (job for job in every_job() if job.label == "bundle-validation.yml:release-replay")
+        runs = [step.get("run", "") for step in job.steps]
+        taken = next(at for at, run in enumerate(runs) if "git archive" in run)
+        assert (
+            'git archive "${tag}" tools/bundle_validation examples/demo/vehicle.dbc' in runs[taken]
+        )
+        validate = next(at for at, run in enumerate(runs) if "-m tools.bundle_validate" in run)
+        assert taken < validate
+        given = runs[validate]
+        assert '--fixtures "${RUNNER_TEMP}/release-fixtures/tools/bundle_validation"' in given
+        assert '--dbc "${RUNNER_TEMP}/release-fixtures/examples/demo/vehicle.dbc"' in given

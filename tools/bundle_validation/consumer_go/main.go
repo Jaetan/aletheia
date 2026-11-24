@@ -49,9 +49,11 @@ func run() error {
 	}
 
 	// Always(VehicleSpeed < 100 kph).
-	prop := aletheia.Always{Inner: aletheia.Atomic{
-		Predicate: aletheia.Signal("VehicleSpeed").LessThan(aletheia.IntRational(100)),
-	}}
+	below, err := aletheia.Signal("VehicleSpeed").LessThan(aletheia.IntRational(100))
+	if err != nil {
+		return fmt.Errorf("LessThan: %w", err)
+	}
+	prop := aletheia.Always{Inner: aletheia.Atomic{Predicate: below}}
 	if err := client.SetProperties(ctx, []aletheia.Formula{prop}); err != nil {
 		return fmt.Errorf("SetProperties: %w", err)
 	}

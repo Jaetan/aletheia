@@ -62,9 +62,11 @@ auto main(int argc, char** argv) -> int {
         return fail("vehicle.dbc should carry the VehicleDynamics + BrakeStatus messages");
 
     // Always(VehicleSpeed < 100 kph).
+    auto below = ltl::less_than(SignalName{"VehicleSpeed"}, PhysicalValue{Rational{100, 1}});
+    if (!below.has_value())
+        return fail("less_than: " + std::string(below.error().message()));
     std::vector<LtlFormula> props;
-    props.push_back(ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"VehicleSpeed"}, PhysicalValue{Rational{100, 1}}))));
+    props.push_back(ltl::always(ltl::atomic(*std::move(below))));
     if (auto r = client->set_properties(stop, props); !r.has_value())
         return fail("set_properties: " + std::string(r.error().message()));
     if (auto r = client->start_stream(stop); !r.has_value())
