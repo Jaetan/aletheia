@@ -148,6 +148,7 @@ WATCHED: tuple[WorkflowStep, ...] = (
         _CHECK_REPRODUCIBLE_BUILD,
     ),
     _watched(PatternText(r"-m tools\.licence_audit\b"), _OURS),
+    _watched(PatternText(r"-m tools\.go_release\b"), _OURS),
     _watched(PatternText(r"-m tools\.check_action_pins\b"), _OURS),
     _watched(PatternText(r"-m tools\.check_workflow_permissions\b"), _OURS),
     _watched(PatternText(r"-m tools\.check_pr_title\b"), _OURS),

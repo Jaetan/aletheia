@@ -816,3 +816,103 @@ def test_pre_commit_restore_failure_keeps_the_stash_and_prints_the_recipe(tmp_pa
     assert "git --literal-pathspecs restore --source=" + _OURS + " --worktree" in done.stderr
     assert "git --literal-pathspecs restore --source=" + _OURS + "^3 --worktree" in done.stderr
     assert [call for call in faked.git_calls if call[1:3] == ["stash", "drop"]] == []
+
+
+# A ref name as git hands it to a pre-push hook.
+RefName = NewType("RefName", str)
+
+# The tools a pre-push hook runs, as stubs: the sweep vouches for every tree, and
+# the release tool writes down what it was handed and answers ``STATUS``.
+_PUSH_STUBS = {
+    "run_ci.py": "import sys\nsys.exit(0)\n",
+    "sweep_evidence.py": "import sys\nsys.exit(0)\n",
+    "go_release.py": (
+        "import os, sys\nfrom pathlib import Path\n"
+        "saw = ' '.join(sys.argv[1:]) + '\\n' + sys.stdin.read()\n"
+        "_ = Path(os.environ['SAW']).write_text(saw)\n"
+        "sys.exit(int(os.environ['STATUS']))\n"
+    ),
+}
+_NO_OBJECT = "0" * 40
+
+
+def _push_hooked_repo(tmp_path: Path) -> Path:
+    """Build a repository holding the stub tools and the rendered pre-push hook."""
+    repo = tmp_path / "repo"
+    (repo / "tools").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    for name, text in {"__init__.py": "", **_PUSH_STUBS}.items():
+        _ = (repo / "tools" / name).write_text(text, encoding="utf-8")
+    hook = repo / ".git" / "hooks" / "pre-push"
+    _ = hook.write_text(
+        "#!" + sys.executable + "\n" + PRE_PUSH_BODY.split("\n", 1)[1], encoding="utf-8"
+    )
+    hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
+    return repo
+
+
+class Pushed(NamedTuple):
+    """How the pre-push hook ended: its exit status and what it wrote on its error stream."""
+
+    status: ExitStatus
+    stderr: Prose
+
+
+def _push_through_the_hook(
+    tmp_path: Path, refs: list[RefName], status: ExitStatus, *, tool: bool = True
+) -> Pushed:
+    """Run the pre-push hook pushing each of ``refs`` anew, the release tool answering ``status``.
+
+    The hook is the installer's body, run as git runs it, with the ref lines on its stdin.
+    """
+    repo = _push_hooked_repo(tmp_path)
+    if not tool:
+        (repo / "tools" / "go_release.py").unlink()
+    given = "".join(f"{ref} {'1' * 40} {ref} {_NO_OBJECT}\n" for ref in refs)
+    env = os.environ | {"SAW": str(tmp_path / "saw.txt"), "STATUS": str(status)}
+    ran = subprocess.run(
+        [str(repo / ".git" / "hooks" / "pre-push"), "origin", "url"],
+        input=given,
+        text=True,
+        capture_output=True,
+        cwd=repo,
+        env=env,
+        check=False,
+    )
+    return Pushed(ExitStatus(ran.returncode), Prose(ran.stderr))
+
+
+@pytest.mark.process("the hook is a program git runs with the pushed refs on its stdin")
+def test_pre_push_refuses_a_tag_the_release_tool_refuses(tmp_path: Path) -> None:
+    """A tag push goes first to tools/go_release.py check-tags with git's lines; a no stops it."""
+    refs = [RefName("refs/tags/v6.0.0"), RefName("refs/tags/go/v6.0.0")]
+    ran = _push_through_the_hook(tmp_path, refs, ExitStatus(1))
+    assert ran.status == 1
+    assert "push is refused" in ran.stderr
+    saw = (tmp_path / "saw.txt").read_text(encoding="utf-8").splitlines()
+    assert saw[0] == "check-tags"
+    assert [line.split()[2] for line in saw[1:]] == refs
+
+
+@pytest.mark.process("the hook is a program git runs with the pushed refs on its stdin")
+def test_pre_push_lets_a_tag_the_release_tool_holds_through(tmp_path: Path) -> None:
+    """A tag the release tool holds goes on to the sweep's evidence, which vouches here."""
+    ran = _push_through_the_hook(tmp_path, [RefName("refs/tags/v6.0.0")], ExitStatus(0))
+    assert ran.status == 0, ran.stderr
+
+
+@pytest.mark.process("the hook is a program git runs with the pushed refs on its stdin")
+def test_pre_push_of_a_branch_never_asks_the_release_tool(tmp_path: Path) -> None:
+    """A branch push sends no tag, so the release tool, refusing all here, is never run."""
+    ran = _push_through_the_hook(tmp_path, [RefName("refs/heads/main")], ExitStatus(1))
+    assert ran.status == 0, ran.stderr
+    assert not (tmp_path / "saw.txt").exists()
+
+
+@pytest.mark.process("the hook is a program git runs with the pushed refs on its stdin")
+def test_pre_push_refuses_a_tag_when_the_release_tool_is_missing(tmp_path: Path) -> None:
+    """A tag push with no tools/go_release.py to hold it is refused, naming the tool."""
+    ran = _push_through_the_hook(tmp_path, [RefName("refs/tags/v6.0.0")], ExitStatus(0), tool=False)
+    assert ran.status == 1
+    assert "tools/go_release.py" in ran.stderr
+    assert not (tmp_path / "saw.txt").exists()

@@ -20,7 +20,9 @@ Hooks installed:
     tree of the commit each pushed ref names.  A recorded passing sweep of
     that tree (``tools/sweep_evidence.py``) allows it at once; otherwise the
     hook runs the sweep and allows the push only when it passed on the pushed
-    tree.  git holds the remote connection open while the hook runs, so the
+    tree.  A push sending a tag is first held by ``tools/go_release.py``: the
+    release's tags name one commit, which holds the hashes the tags of its Go
+    modules publish.  git holds the remote connection open while the hook runs, so the
     sweep belongs before the push.  Rationale: offline validation catches
     breakage before it lands on origin.  The CI sweep includes the IWYU gate
     (``tools/iwyu.py``) on files modified in the branch.
@@ -62,8 +64,11 @@ hangs the push.  The hook therefore first asks tools/sweep_evidence.py whether
 the commit each pushed ref names (git hands them on stdin) has a passing full
 sweep of its exact tree on record, and allows the push at once when it has.
 When one has none, it runs the sweep here over the working tree and asks
-again, so a sweep of a tree other than the pushed one allows nothing.  Skip
-with `git push --no-verify`.
+again, so a sweep of a tree other than the pushed one allows nothing.  A
+push sending a tag is first held by tools/go_release.py: the release tags of
+one version name one commit, each go/ tag a released Go module, and that
+commit holds the hashes its tags will publish, which the public checksum
+database would keep for good.  Skip with `git push --no-verify`.
 """
 
 import os
@@ -72,17 +77,22 @@ import sys
 from pathlib import Path
 
 
-def pushed_commits() -> list[str]:
+def pushed_commits(lines: list[str]) -> list[str]:
     """Read the commits being pushed from the ref lines git hands on stdin.
 
     A line whose local id is all zeros deletes a remote ref and pushes nothing.
     """
     commits = []
-    for line in sys.stdin.read().splitlines():
+    for line in lines:
         fields = line.split()
         if len(fields) == 4 and fields[1].strip("0"):
             commits.append(fields[1])
     return commits
+
+
+def pushes_a_tag(lines: list[str]) -> bool:
+    """Say whether a ref line names a tag on the remote."""
+    return any(len(f) == 4 and f[2].startswith("refs/tags/") for f in map(str.split, lines))
 
 
 def main() -> int:
@@ -108,7 +118,24 @@ def main() -> int:
             )
             return 1
 
-    commits = pushed_commits()
+    lines = sys.stdin.read().splitlines()
+    if pushes_a_tag(lines):
+        if not (Path(repo_root) / "tools" / "go_release.py").is_file():
+            sys.stderr.write(
+                "pre-push: FAIL: a tag is pushed and tools/go_release.py, which holds a\\n"
+                "pre-push: release's tags to their hashes, is not found, so the push is refused.\\n"
+            )
+            return 1
+        tags = [sys.executable, "-m", "tools.go_release", "check-tags"]
+        given = "\\n".join(lines) + "\\n"
+        if subprocess.run(tags, input=given, text=True, cwd=repo_root, check=False).returncode:
+            sys.stderr.write(
+                "pre-push: a release tag is pushed whose commit does not hold the hashes\\n"
+                "pre-push: its Go modules' tags publish, so the push is refused (see above).\\n"
+            )
+            return 1
+
+    commits = pushed_commits(lines)
     if not commits:
         sys.stderr.write("pre-push: the push sends no commit (a deletion) — push allowed.\\n")
         return 0
@@ -543,7 +570,9 @@ PRE_COMMIT_SUMMARY = (
     "the other answers, and blocks on either's failure; bypass with `--no-verify`"
 )
 PRE_PUSH_SUMMARY = (
-    "every `git push` asks `tools/sweep_evidence.py` for a passing full sweep of the "
+    "every `git push` sending a tag first has `tools/go_release.py` hold the release's "
+    "Go modules to their recorded hashes; every `git push` asks `tools/sweep_evidence.py` "
+    "for a passing full sweep of the "
     "pushed tree, runs `tools/run_ci.py` when none is on record, and blocks unless a "
     "sweep of the pushed tree passed; bypass with `--no-verify`"
 )

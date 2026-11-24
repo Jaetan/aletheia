@@ -14,7 +14,7 @@ import subprocess
 import sys
 import types
 from enum import Enum
-from typing import TYPE_CHECKING, NamedTuple, NewType, cast
+from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, Unpack, cast
 
 import pytest
 from _hook_runs import GitDone, GitOutput, HookRun, ToolDone, ToolOutput, TopLevel, run_main
@@ -45,12 +45,23 @@ ToolFile = NewType("ToolFile", str)
 Question = NewType("Question", str)
 
 
+class _RunOptions(TypedDict, total=False):
+    """The keywords the hook passes ``subprocess.run``: the fake reads ``input`` alone."""
+
+    cwd: TopLevel
+    capture_output: bool
+    text: bool
+    check: bool
+    input: RefLines
+
+
 class PushedHook(NamedTuple):
     """A pre-push hook loaded with its tools faked, and what they were asked."""
 
     main: Callable[[], ExitStatus]
     asked: list[Question]
     sweeps: list[list[CommandWord]]
+    tagged: list[RefLines]
 
 
 def _load_pre_push(tmp_path: Path) -> types.ModuleType:
@@ -75,6 +86,7 @@ def _faked_push(
     evidence: Evidence,
     *,
     sweep_fails: bool = False,
+    tags_refused: bool = False,
 ) -> PushedHook:
     """Load the pre-push hook with git and its two tools answered in-process.
 
@@ -82,25 +94,24 @@ def _faked_push(
     the work tree's root, the evidence tool answers as ``evidence`` says and
     writes down, one question per entry, the commits it was asked about, and
     the sweep fails when ``sweep_fails`` says so, passes otherwise, and writes
-    down that it ran. The tool files are planted empty because the hook looks
-    for each before it runs anything.
+    down that it ran; the release tool writes down the ref lines it was handed
+    and refuses when ``tags_refused`` says so. The tool files are planted empty
+    because the hook looks for each before it runs it.
     """
     hook = _load_pre_push(tmp_path)
     (tmp_path / "tools").mkdir()
-    for tool in ("__init__.py", "run_ci.py", "sweep_evidence.py"):
+    for tool in ("__init__.py", "run_ci.py", "sweep_evidence.py", "go_release.py"):
         (tmp_path / "tools" / tool).write_text("", encoding="utf-8")
     asked: list[Question] = []
     sweeps: list[list[CommandWord]] = []
+    tagged: list[RefLines] = []
 
-    def fake_run(
-        args: list[CommandWord],
-        *,
-        cwd: TopLevel | None = None,
-        capture_output: bool = False,
-        text: bool = False,
-        check: bool = False,
-    ) -> GitDone | ToolDone:
-        del cwd, capture_output, text, check
+    def fake_run(args: list[CommandWord], **options: Unpack[_RunOptions]) -> GitDone | ToolDone:
+        if args[1:4] == ["-m", "tools.go_release", "check-tags"]:
+            tagged.append(options.get("input", RefLines("")))
+            return subprocess.CompletedProcess(
+                args, int(tags_refused), ToolOutput(""), ToolOutput("")
+            )
         if args == ["git", "rev-parse", "--show-toplevel"]:
             return subprocess.CompletedProcess(
                 args, 0, GitOutput(str(tmp_path) + "\n"), GitOutput("")
@@ -118,7 +129,7 @@ def _faked_push(
         return subprocess.CompletedProcess(args, int(sweep_fails), ToolOutput(""), ToolOutput(""))
 
     monkeypatch.setattr(hook, "subprocess", types.SimpleNamespace(run=fake_run))
-    return PushedHook(cast("Callable[[], ExitStatus]", hook.main), asked, sweeps)
+    return PushedHook(cast("Callable[[], ExitStatus]", hook.main), asked, sweeps, tagged)
 
 
 def _push(faked: PushedHook, refs: RefLines, monkeypatch: pytest.MonkeyPatch) -> HookRun:
@@ -214,3 +225,14 @@ def test_pre_push_refuses_when_a_tool_it_runs_is_missing(
     assert f"{tool} not found" in done.stderr
     assert not faked.asked
     assert not faked.sweeps
+
+
+def test_pre_push_hands_the_release_tool_every_ref_line_and_heeds_its_no(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A push sending a tag gives tools/go_release.py git's lines; its refusal ends the push."""
+    faked = _faked_push(tmp_path, monkeypatch, Evidence.RECORDED, tags_refused=True)
+    done = _push(faked, _REFS, monkeypatch)
+    assert done.returncode == 1, done.stderr
+    assert faked.tagged == [_REFS]
+    assert not faked.asked

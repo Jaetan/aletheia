@@ -169,11 +169,6 @@ GO_BUILD_NO_CGO = "CGO_ENABLED=0 go build -o /dev/null ./..."
 GO_TEST_NO_CGO = "CGO_ENABLED=0 go test ./... -count=1 -shuffle=on"
 GO_EXCEL_MODULE = Path("excel")
 
-# Every module built outside the workspace, as a consumer does: against the versions it requires.
-GO_BUILD_OUTSIDE_WORKSPACE = (
-    "GOWORK=off GOPRIVATE=github.com/Jaetan/aletheia go build -mod=readonly -o /dev/null ./..."
-)
-
 
 # The Python at the repository root, outside the package's ``python/`` tree: the
 # gate scripts, the shared micro-benchmarks, the examples and the doc-example
@@ -518,10 +513,11 @@ def _run_binding_tests(runner: Runner) -> None:
     # the next, which reuses what it built.  The build goes on past a target
     # that fails to compile (`--keep-going`, which `cargo test` does not take)
     # and the run past a test program that fails (`--no-fail-fast`), so one
-    # failure hides no other.
+    # failure hides no other.  Each build reads the lockfile as committed
+    # (`--locked`): a manifest's version moved without it fails here.
     runner.step(
         CARGO_TEST_BUILD_STEP,
-        "cargo build --tests --examples --all-features --keep-going",
+        "cargo build --locked --tests --examples --all-features --keep-going",
         cwd=runner.repo_root / "rust",
     )
     runner.step(
@@ -536,7 +532,7 @@ def _run_binding_tests(runner: Runner) -> None:
     # .so — ALETHEIA_LIB pins the freshly built one (like the main cargo step).
     runner.step(
         EXCEL_CARGO_TEST_BUILD_STEP,
-        "cargo build --tests --examples --keep-going",
+        "cargo build --locked --tests --examples --keep-going",
         cwd=runner.repo_root / "rust" / "excel",
     )
     runner.step(
@@ -648,10 +644,12 @@ def _run_lints(runner: Runner) -> None:
         in_every_go_module(GO_TEST_NO_CGO, but=GO_EXCEL_MODULE),
         cwd=runner.repo_root / "go",
     )
+    # Every module built outside the workspace as a consumer resolves it, a version the
+    # tree prepares served from the tree where it hashes as the go.sum lines record.
     runner.step(
         "go build (outside the workspace)",
-        in_every_go_module(GO_BUILD_OUTSIDE_WORKSPACE),
-        cwd=runner.repo_root / "go",
+        [runner.python, "-m", "tools.go_release", "check"],
+        cwd=runner.repo_root,
     )
 
     # clang-format over what the repository tracks, for the reason the
