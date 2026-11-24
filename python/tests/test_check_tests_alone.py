@@ -10,6 +10,7 @@ is read, the findings it names, the status it exits with, and its registration.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,8 @@ from tools._common import (
     CPP_BUILD_STEP,
     EXCEL_CARGO_TEST_BUILD_STEP,
     CommandWord,
+    EnvName,
+    EnvValue,
     HelpText,
     RelPath,
     WorkerCount,
@@ -212,3 +215,104 @@ def test_a_binding_gate_takes_the_binding_named_and_refuses_another() -> None:
     with pytest.raises(SystemExit) as refused:
         _ = parser.parse_args([CommandWord("--binding"), CommandWord("java")])
     assert refused.value.code == 2
+
+
+def _tool_at(_name: CommandWord) -> CommandWord:
+    return CommandWord("/bin/tool")
+
+
+def test_go_listings_are_read_from_their_output_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``go: downloading`` on the error stream, as a cold module cache prints it, lists nothing.
+
+    Nor does a name there that looks like a test's.
+    """
+    package = RunText(f"{tmp_path}\texample.com/m/p\t1\t0\n")
+    tests = RunText("TestA\nTestB\nBenchmarkC\n")
+
+    def ran(argv: list[CommandWord], cwd: Path, env: Environment) -> Ran:
+        del cwd, env
+        if argv[1] == "list":
+            return Ran(ExitStatus(0), RunText(f"go: downloading x v1\n{package}"), package)
+        if argv[1] == "-test.list":
+            return Ran(ExitStatus(0), RunText(f"TestNoise\n{tests}"), tests)
+        return Ran(ExitStatus(0), RunText(""), RunText(""))
+
+    monkeypatch.setattr(check_tests_alone, "find_executable", _tool_at)
+    monkeypatch.setattr(check_tests_alone, "capture", ran)
+    suites = check_tests_alone.go_suites(tmp_path)
+    assert [suite.tests for suite in suites] == [(_A, _B)] * 3
+    assert {suite.runner for suite in suites} == {"go"}
+
+
+def test_ctest_listings_are_read_from_their_output_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A word on ctest's or Catch2's error stream is neither JSON nor a case name."""
+    listing = RunText(
+        '{"tests": [{"name": "unit_tests", "command": ["/b/unit_tests", "--order", "rand"],'
+        + ' "properties": [{"name": "ENVIRONMENT", "value": ["K=v"]},'
+        + ' {"name": "WORKING_DIRECTORY", "value": "/w"}]},'
+        + ' {"name": "static_tests", "command": ["/b/static_tests"]}]}'
+    )
+    cases = RunText("a case\n")
+
+    def ran(argv: list[CommandWord], cwd: Path, env: Environment) -> Ran:
+        if argv[-1] == "--show-only=json-v1":
+            return Ran(ExitStatus(0), RunText(f"ctest: a warning\n{listing}"), listing)
+        assert cwd == Path("/w")
+        assert env[EnvName("K")] == EnvValue("v")
+        return Ran(ExitStatus(0), RunText(f"a warning\n{cases}"), cases)
+
+    monkeypatch.setattr(check_tests_alone, "find_executable", _tool_at)
+    monkeypatch.setattr(check_tests_alone, "capture", ran)
+    suites = check_tests_alone.cpp_suites(Path("/scratch"))
+    assert len(suites) == 1
+    suite = suites[0]
+    assert suite.tests == (TestName("a case"),)
+    assert (suite.binary, suite.runner) == (Path("/b/unit_tests"), "catch")
+
+
+def test_cargo_listings_are_read_from_their_output_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each crate's test binaries come from cargo's messages, their tests from their listing.
+
+    Both read the output alone: a message or a test name on the error stream is neither.
+    """
+    message = RunText(
+        '{"reason": "compiler-artifact", "executable": "/t/lifecycle",'
+        + ' "profile": {"test": true}, "target": {"name": "lifecycle"}}\n'
+    )
+    tests = RunText("opens: test\ncloses: test\nbench: benchmark\n")
+    noise = RunText(
+        '{"reason": "compiler-artifact", "executable": "/t/noise",'
+        + ' "profile": {"test": true}, "target": {"name": "noise"}}\n'
+    )
+
+    def ran(argv: list[CommandWord], cwd: Path, env: Environment) -> Ran:
+        del cwd, env
+        if CommandWord("--no-run") in argv:
+            return Ran(ExitStatus(0), RunText(f"{noise}{message}"), message)
+        return Ran(ExitStatus(0), RunText(f"noise: test\n{tests}"), tests)
+
+    monkeypatch.setattr(check_tests_alone, "find_executable", _tool_at)
+    monkeypatch.setattr(check_tests_alone, "capture", ran)
+    suites = check_tests_alone.rust_suites(Path("/scratch"))
+    assert [suite.tests for suite in suites] == [(TestName("opens"), TestName("closes"))] * 2
+    assert [suite.label for suite in suites] == ["rust:lifecycle", "rust/excel:lifecycle"]
+
+
+def test_a_run_keeps_its_output_apart_from_its_error_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run's text is both streams, its output the standard output alone."""
+
+    def finished(
+        argv: list[CommandWord], *, cwd: Path, env: Environment
+    ) -> subprocess.CompletedProcess[RunText]:
+        del cwd, env
+        return subprocess.CompletedProcess(argv, 3, RunText("listed\n"), RunText("told\n"))
+
+    monkeypatch.setattr(check_tests_alone, "run_capture", finished)
+    ran = check_tests_alone.capture([CommandWord("/bin/tool")], Path("/"), {})
+    assert ran == Ran(ExitStatus(3), RunText("listed\ntold\n"), RunText("listed\n"))

@@ -121,10 +121,16 @@ class _CargoMessage(TypedDict, total=False):
 
 
 class Ran(NamedTuple):
-    """A finished run: its exit status and everything it printed."""
+    """A finished run: its exit status, everything it printed, and its standard output alone.
+
+    A listing is read from the standard output alone: a tool tells what it is
+    doing on its error stream (``go: downloading`` on a cold module cache), which
+    no listing holds.
+    """
 
     status: ExitStatus
     text: RunText
+    out: RunText = RunText("")
 
 
 class Suite(NamedTuple):
@@ -168,7 +174,7 @@ def base_environment() -> Environment:
 def capture(argv: list[CommandWord], cwd: Path, env: Environment) -> Ran:
     """Run ``argv`` and return its status and its output, both streams."""
     run = run_capture(argv, cwd=cwd, env=env)
-    return Ran(ExitStatus(run.returncode), RunText(run.stdout + run.stderr))
+    return Ran(ExitStatus(run.returncode), RunText(run.stdout + run.stderr), RunText(run.stdout))
 
 
 def _words(*parts: Path | CommandWord) -> list[CommandWord]:
@@ -201,7 +207,7 @@ def _go_packages(go: CommandWord, module: Path, env: Environment) -> list[tuple[
         msg = f"go list in {module} exited {listing.status}: {listing.text[-300:]}"
         raise CannotCheckError(msg)
     packages: list[tuple[Path, ImportPath]] = []
-    for line in listing.text.splitlines():
+    for line in listing.out.splitlines():
         pkg_dir, path, tests, xtests = line.split("\t")
         if (tests, xtests) != ("0", "0"):
             packages.append((Path(pkg_dir), ImportPath(path)))
@@ -225,7 +231,7 @@ def go_suites(scratch: Path) -> list[Suite]:
                 msg = f"go test -c {path} exited {built.status}: {built.text[-300:]}"
                 raise CannotCheckError(msg)
             listed = capture(_words(binary, _W("-test.list"), _W(".*")), pkg_dir, env)
-            names = tuple(TestName(n) for n in listed.text.split() if _GO_TEST.match(n))
+            names = tuple(TestName(n) for n in listed.out.split() if _GO_TEST.match(n))
             suites.append(Suite(Prose(path), names, binary, "go", pkg_dir, env))
     return suites
 
@@ -257,7 +263,7 @@ def cpp_suites(_scratch: Path) -> list[Suite]:
         msg = f"ctest --show-only exited {shown.status}: {shown.text[-300:]}"
         raise CannotCheckError(msg)
     suites: list[Suite] = []
-    for test in cast("_CtestListing", json.loads(shown.text))["tests"]:
+    for test in cast("_CtestListing", json.loads(shown.out))["tests"]:
         command = test.get("command", [])
         # A Catch2 suite is registered shuffled (cpp/CMakeLists.txt); the rest are no suites.
         if command[1:] != [_W("--order"), _W("rand")]:
@@ -265,7 +271,7 @@ def cpp_suites(_scratch: Path) -> list[Suite]:
         env, directory = _ctest_environment(test)
         cwd = Path(directory) if directory is not None else build
         listed = capture([command[0], _W("--list-tests"), _W("--verbosity"), _W("quiet")], cwd, env)
-        names = tuple(TestName(line) for line in listed.text.splitlines() if line.strip())
+        names = tuple(TestName(line) for line in listed.out.splitlines() if line.strip())
         if listed.status != 0 or not names:
             msg = f"{test['name']} listed no case (exit {listed.status})"
             raise CannotCheckError(msg)
@@ -294,7 +300,7 @@ def rust_suites(_scratch: Path) -> list[Suite]:
         if built.status != 0:
             msg = f"cargo test --no-run in {crate} exited {built.status}: {built.text[-300:]}"
             raise CannotCheckError(msg)
-        for line in built.text.splitlines():
+        for line in built.out.splitlines():
             if not line.startswith("{"):
                 continue
             message = cast("_CargoMessage", json.loads(line))
@@ -306,7 +312,7 @@ def rust_suites(_scratch: Path) -> list[Suite]:
             listed = capture([_W(exe), _W("--list"), _W("--format"), _W("terse")], cwd, env)
             names = tuple(
                 TestName(entry.removesuffix(": test"))
-                for entry in listed.text.splitlines()
+                for entry in listed.out.splitlines()
                 if entry.endswith(": test")
             )
             label = Prose(f"{crate}:{message.get('target', {'name': Prose('?')})['name']}")
