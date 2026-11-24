@@ -205,7 +205,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-libstdcxx15-ccache-fish-rpm-noble-v3
+          key: clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4
       # ubuntu-24.04 pre-installs only clang ≤19, and clang-23 (the supported
       # toolchain) compiles both the kernel library's C (haskell-shim/cabal.project)
       # and the bundled C++ binding (cpp/CMakeLists.txt), so it is installed from
@@ -215,7 +215,7 @@ jobs:
       # on PATH the validator also runs the fish installer, checks bash/fish
       # recipe parity, and sources env.fish.
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libstdc++-15-dev ccache fish rpm
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
       - name: Build the distribution tarball (unsigned)
         # --keep-going: every gate dist needs reports, whichever fails first.
@@ -227,16 +227,14 @@ jobs:
       - name: Set up Go (bundle consumer toolchain)
         uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version-file: .go-version
           cache-dependency-path: |
             go/go.sum
             go/excel/go.sum
 
-      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
+      - name: Set up Rust (minimal, bundle consumer toolchain)
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
-          rustc --version && cargo --version
+          tools/install_rust_toolchain.sh
 
       # FETCHCONTENT_BASE_DIR for the C++ consumer configure — keyed on
       # cpp/CMakeLists.txt, which pins the dependency versions (the bundled
@@ -298,16 +296,14 @@ jobs:
       - name: Set up Go (bundle consumer toolchain)
         uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version-file: .go-version
           cache-dependency-path: |
             go/go.sum
             go/excel/go.sum
 
-      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
+      - name: Set up Rust (minimal, bundle consumer toolchain)
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
-          rustc --version && cargo --version
+          tools/install_rust_toolchain.sh
 
       # From an empty directory rather than the shared package cache: this
       # weekly run refreshes apt's lists and installs the archives' newest
@@ -316,10 +312,10 @@ jobs:
       # when apt's NO_PUBKEY error does, and a break in the download path
       # otherwise.  A later step red points at a rebuild the cached runs have
       # not met when dpkg's `Unpacking <package> (<version>)` lines here name
-      # newer builds than head-dist's, which installs from the cache.  fish is
-      # the recipe-parity leg's, as in head-dist.
+      # newer builds than head-dist's, which installs from the cache; the list
+      # is the one every job installs, fish for the recipe-parity leg.
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: cpp/toolchain/install.sh "${RUNNER_TEMP}/llvm-cold" clang-23 clang-tidy-23 libstdc++-15-dev fish
+        run: cpp/toolchain/install.sh "${RUNNER_TEMP}/llvm-cold" clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
       # Same key as the head-dist job: the latest release's dependency pins
       # may lag the checked-out cpp/CMakeLists.txt, in which case FetchContent

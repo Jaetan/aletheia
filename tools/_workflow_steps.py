@@ -172,7 +172,7 @@ EXEMPT: tuple[WorkflowStep, ...] = (
     _exempt(PatternText(r'^\s*cabal install "Agda-'), _INSTALL),
     _exempt(PatternText(r"\bcabal build --only-dependencies\b"), _CACHE),
     _exempt(PatternText(r"^\s*mkdir -p ~/\.agda\b"), _INSTALL),
-    _exempt(PatternText(r"^\s*rustup toolchain install\b"), _INSTALL),
+    _exempt(PatternText(r"\btools/install_rust_toolchain\.sh\b"), _INSTALL),
     _exempt(PatternText(r"\bcpp/toolchain/install\.sh\b"), _INSTALL),
     _exempt(PatternText(r'^\s*echo "CCACHE_DIR='), _SETUP),
     _exempt(PatternText(r"^\s*ccache --(zero|show)-stats\b"), _CACHE),

@@ -53,7 +53,7 @@ _WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-
 # The toolchain deb cache key the mutation lane installs from, whose upstreams
 # cpp/toolchain/check_upstream.sh records: a new upstream moves it, and every cache
 # built against the toolchain moves with it.
-_TOOLCHAIN_KEY = "clang23-llvm23dev-libstdcxx15-ccache-noble-v3"
+_TOOLCHAIN_KEY = "clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4"
 _LANE_JOB = "mutation-lane"
 _MERGE_JOB = "mutation-merge"
 _REQUIRED_JOB = "mutation"

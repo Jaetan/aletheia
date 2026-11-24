@@ -14,10 +14,10 @@ again with the archives' newest builds.
 A job names every package it takes from an archive in its install, since a
 later refresh of apt's lists would read the script's sources and wait on their
 servers; a later step that must refresh runs apt through
-``apt_without_toolchain.sh``, over every source but those.  A
-cache key stands for one package list, since a cache hit installs what the
-cache holds whatever the install names, and the script installs from its
-cache only when every package it names ends installed.  The script refreshes
+``apt_without_toolchain.sh``, over every source but those.  Every
+job installs one package list under one cache key, so every job builds with
+the one clang build the cache holds, and the script installs from its cache
+only when every package it names ends installed.  The script refreshes
 the lists only when its cache cannot install what it names, so a later step
 installing from an archive refreshes them itself, and one weekly job installs
 from an empty directory, where an archive's change of key shows.
@@ -242,23 +242,26 @@ def test_apt_runs_through_the_script_over_every_source_but_the_install_s() -> No
     assert calls == ['sudo apt-get -o "Dir::Etc::SourceParts=$parts" "$@"']
 
 
-def test_a_cache_key_stands_for_one_package_list() -> None:
-    """Every install from one toolchain cache key names the same packages.
+def test_every_toolchain_install_names_one_key_and_one_list() -> None:
+    """Every job of every workflow installs one package list under one cache key.
 
-    A cache hit installs what the cache holds whatever the install names, so
-    an install naming a package the key's other installs do not would find it
-    missing from a cache they filled, and refresh from every archive to get it.
+    A cache is filled once, from the archives' newest builds when it is
+    filled, so two keys can hold two clang builds; one key gives every job the
+    build it holds. A cache hit installs what the cache holds whatever the
+    install names, so the key stands for one list, which the weekly install
+    from an empty directory names too.
     """
-    lists: dict[CacheKey, set[_PackageList]] = {}
+    keys: set[CacheKey] = set()
+    lists: set[_PackageList] = set()
     for job in _jobs():
-        for at, step in enumerate(job.steps):
-            if not _caches_the_toolchain(step):
-                continue
-            words = job.steps[at + 1].get("run", "").split()[2:]
-            key = step.get("with", {}).get("key", CacheKey(""))
-            lists.setdefault(key, set()).add(tuple(ArchivePackage(word) for word in words))
-    assert lists
-    assert {key: len(named) for key, named in lists.items()} == dict.fromkeys(lists, 1)
+        for step in job.steps:
+            run = step.get("run", "").strip()
+            if _INSTALL.fullmatch(run) or _COLD_INSTALL.fullmatch(run):
+                lists.add(tuple(ArchivePackage(word) for word in run.split()[2:]))
+            if _caches_the_toolchain(step):
+                keys.add(step.get("with", {}).get("key", CacheKey("")))
+    assert len(keys) == 1, sorted(keys)
+    assert len(lists) == 1, sorted(lists)
 
 
 def test_every_toolchain_cache_is_installed_by_the_script_under_its_condition() -> None:

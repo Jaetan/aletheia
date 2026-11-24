@@ -136,6 +136,7 @@ _DECLARED = {
     "check-cpp-library-search": _OURS,
     "check-no-memory-citations": _OURS,
     "check-venv-convention": _OURS,
+    "check-toolchain-pins": _OURS,
     "check-cpp-index-loops": _OURS,
     "check-cpp-layout": _OURS,
     "check-precise-hints": _OURS,

@@ -14,7 +14,8 @@ step whose output it reads.  Four gates hold
 a fact about a mutation tool, what Mull's plugin emits and withholds, that the
 C++ slices union to the whole tree's census, how cargo-mutants deals its shards
 and what mutmut cannot mutate, and run only with the mutation lane, since each
-needs its lane's tool.
+needs its lane's tool.  One holds the machine itself to the Go and the Rust the
+tree pins, on every run.
 """
 
 from __future__ import annotations
@@ -36,6 +37,13 @@ CENSUS_BUILD_STEP = GateName("check-cpp-slices-census-build")
 
 def register_tool_fact_steps(runner: Runner) -> None:
     """Register the tool-fact gates, each in the lane that holds what it reads."""
+    # Each compiler's version report, read on every run, so a local sweep and
+    # a runner build with one Go and one Rust.
+    runner.step(
+        "check-toolchain-pins",
+        [runner.python, "-m", "tools.check_toolchain_pins"],
+        cwd=runner.repo_root,
+    )
     # Two dumps of the configuration, compile-free and read from the index's
     # file, so the pre-commit tier runs it too.
     runner.step(

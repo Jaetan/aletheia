@@ -219,7 +219,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-libstdcxx15-ccache-fish-rpm-noble-v3
+          key: clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4
       # ubuntu-24.04 pre-installs only clang ≤19, and clang-23 (the supported
       # toolchain) compiles both the kernel library's C (haskell-shim/cabal.project)
       # and the bundled C++ binding (cpp/CMakeLists.txt), so it is installed from
@@ -232,7 +232,7 @@ jobs:
       # divergence class the v4.0.0 review caught by hand).
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         id: clang
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libstdc++-15-dev ccache fish rpm
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
       - name: Build + keyless-sign the distribution tarball
         id: dist
@@ -325,21 +325,19 @@ jobs:
         id: go
         uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version-file: .go-version
           cache-dependency-path: |
             go/go.sum
             go/excel/go.sum
 
-      # The runner ships rustup; a stable toolchain with the minimal profile is
+      # The runner ships rustup; the pinned toolchain with the minimal profile is
       # all the consumer build needs (no clippy/rustfmt here — the consumer is
       # built, not linted).
-      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
+      - name: Set up Rust (minimal, bundle consumer toolchain)
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
         id: rust
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
-          rustc --version && cargo --version
+          tools/install_rust_toolchain.sh
 
       # FETCHCONTENT_BASE_DIR for the C++ consumer configure: without it every
       # run re-downloads nlohmann/json + yaml-cpp + OpenXLSX into the per-run

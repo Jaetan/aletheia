@@ -229,7 +229,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version-file: .go-version
           # The Go modules live under go/ and go/excel/, not the repo root, so
           # setup-go's default go.sum probe misses and logs "Restore cache
           # failed: Dependencies file is not found ... Supported file pattern:
@@ -239,15 +239,14 @@ jobs:
             go/go.sum
             go/excel/go.sum
 
-      # The ubuntu-24.04 runner ships rustup; ensure a stable toolchain with the
-      # clippy + rustfmt components so run_ci's Rust lane (cargo test / clippy /
-      # fmt --check) has everything it needs. A plain `run:` step (no third-party
-      # action) keeps the action-pin policy untouched.
-      - name: Set up Rust (stable + clippy + rustfmt)
+      # The ubuntu-24.04 runner ships rustup; install the channel
+      # rust-toolchain.toml pins with the clippy + rustfmt components, so run_ci's
+      # Rust lane (cargo test / clippy / fmt --check) has everything it needs. A
+      # plain `run:` step (no third-party action) keeps the action-pin policy
+      # untouched.
+      - name: Set up Rust (+ clippy + rustfmt)
         run: |
-          rustup toolchain install stable --profile minimal --component clippy --component rustfmt --no-self-update
-          rustup default stable
-          rustc --version && cargo --version
+          tools/install_rust_toolchain.sh clippy rustfmt
 
       # ubuntu-24.04 pre-installs only clang ≤19, but the supported toolchain is
       # the latest stable Clang (23, see cpp/CMakeLists.txt + AGENTS/cpp.md), so
@@ -262,18 +261,22 @@ jobs:
       # step installs every package the job takes from an archive with it:
       # ccache, and fish, since run_ci's check-dist-staging gate syntax-checks
       # the packaging/*.fish consumer entry scripts with `fish --no-execute`
-      # and, on a runner, fails closed without it rather than skipping.  rpm
-      # is the release job's: benchmark.yml, bundle-validation.yml and
-      # release.yml install from this key, a key stands for one package list,
-      # and this workflow's runs on main save it where every later run reads
-      # it, the benchmark's and the release's included.  Adjust on red runs.
+      # and, on a runner, fails closed without it rather than skipping.  Every
+      # job of every workflow installs this one list, and every job but the
+      # weekly release replay (which installs from an empty directory, the
+      # archives' newest) installs it from this one key, so those jobs build
+      # with the one clang build its cache holds: llvm-23-dev and
+      # libclang-23-dev are the mutation lane's C++ legs', rpm the release
+      # job's.  A cache hit installs what the cache holds whatever the step
+      # names, so a key stands for one list, and this workflow's runs on main
+      # save it where every later run reads it.  Adjust on red runs.
       - name: Cache clang-23 .debs (Clang is a large download)
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-libstdcxx15-ccache-fish-rpm-noble-v3
+          key: clang23-llvm23dev-libstdcxx15-ccache-fish-rpm-noble-v4
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libstdc++-15-dev ccache fish rpm
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
       # Caches the CMake FetchContent dependencies (json / yaml-cpp / OpenXLSX
       # / Catch2) for every C++ tree run_ci configures: the test build, the

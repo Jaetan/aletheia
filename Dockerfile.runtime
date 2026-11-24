@@ -108,8 +108,8 @@ WORKDIR /work
 # same `go mod edit -replace` wiring install.sh prints, then RUN it — the
 # consumer dlopens the image's kernel and drives a real LTL scenario
 # (parse .dbc → property → conforming + violating frame → one violation).
-# Refresh: docker buildx imagetools inspect golang:1.26-trixie
-FROM golang:1.26-trixie@sha256:4ee9ffa999b4583ce281939cdff828763083610292f252279a0cee77473bd9a7 AS verify-go
+# The Go .go-version pins.  Refresh: docker buildx imagetools inspect golang:<version>-trixie
+FROM golang:1.27.4-trixie@sha256:f18c3d73a184fb0582828510722e723b63a93f7188d11dd223d9be6f6880e65d AS verify-go
 COPY --from=runtime /opt/aletheia /opt/aletheia
 COPY tools/bundle_validation/consumer_go /verify
 COPY examples/demo/vehicle.dbc /verify/vehicle.dbc
@@ -124,8 +124,8 @@ RUN ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so ./consumer vehicle.dbc && 
 # Rust: build the bundled crate standalone (default features), with the
 # shipped Cargo.lock enforced.  The crate dlopens at runtime, so a build
 # proves the bundled source tree is complete and compiles.
-# Refresh: docker buildx imagetools inspect rust:1.97-trixie
-FROM rust:1.97-trixie@sha256:1bcff4befb740599103a2c7cb51058e14479b2e35e3a34a3f0dc4ede09927488 AS verify-rust
+# The Rust rust-toolchain.toml pins.  Refresh: docker buildx imagetools inspect rust:<version>-trixie
+FROM rust:1.100.0-trixie@sha256:223cc32ddca8f3ee90c436dbc94b6b5f052ea7f9653c5201e9612f08ad7d21b8 AS verify-rust
 COPY --from=runtime /opt/aletheia /opt/aletheia
 WORKDIR /opt/aletheia/bindings/rust
 RUN cargo build --release --locked && \
