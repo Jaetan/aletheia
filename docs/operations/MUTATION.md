@@ -474,8 +474,9 @@ against `main` touches, and each CI lane installs only the toolchain its own
 sweep needs: the lane asks `tools/mutation_scope.py`, which reads that same
 scope, ahead of its install steps rather than after them. A change under the
 Agda kernel, the FFI shim, any module of this harness, the Mull build and its
-patches, or the recorded baselines is every binding's change, and a push to
-`main`, whose diff is empty, sweeps every binding.
+patches, the recorded baselines, a gate on a pinned tool's fact that a lane
+runs, or how such gates read the branch is every binding's change, and a push
+to `main`, whose diff is empty, sweeps every binding.
 Set `ALETHEIA_MUTATION_NO_DIFF_SCOPE=1` to sweep everything regardless.
 
 ## Running the lane
@@ -490,6 +491,14 @@ ALETHEIA_MUTATION_CHECK=1 python/.venv/bin/python -m tools.run_ci  # legacy env-
 
 Exit code 0 = lane clean; exit code 1 = drift gate failed (see
 `benchmarks/mutation/<short-sha>/summary.json` for the diagnostic).
+
+The local run sweeps the C++ tree whole. Where the branch moves what the C++
+slicing rests on, or has nothing committed yet, it also builds and dry-runs
+each slice and holds their union to the whole tree's census, the comparison
+the `mutation merge` job makes of the legs' reports. Since that comparison
+reads dry runs where the merge reads sweeps, the census step also holds each
+sweep's own report to a dry run of the build it swept, in a local run and in
+CI's first C++ leg alike.
 
 ### Per-binding directly
 

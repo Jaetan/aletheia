@@ -178,6 +178,11 @@ def _scope_moved(scope: PinScope, changed: list[RelPath], repo_root: Path) -> Pr
     return Prose(f"the branch moves {moved[0].strip()!r} in {', '.join(touched)}")
 
 
+def rests_on(gate: PinGate) -> tuple[PinScope, ...]:
+    """Name what ``gate`` runs on: its own scopes, and how every pin gate reads the branch."""
+    return (*PIN_SCOPES[gate], *_SCOPING)
+
+
 def pin_change(gate: PinGate, repo_root: Path) -> Prose | None:
     """Return why ``gate`` runs on this branch, or None where nothing it rests on moved."""
     if os.environ.get(RUN_ALL_ENV) == "1":
@@ -187,7 +192,7 @@ def pin_change(gate: PinGate, repo_root: Path) -> Prose | None:
         return Prose("git cannot give the branch's diff against main")
     if not changed:
         return Prose("the branch changes nothing against main, which is the backstop run")
-    for scope in (*PIN_SCOPES[gate], *_SCOPING):
+    for scope in rests_on(gate):
         moved = _scope_moved(scope, changed, repo_root)
         if moved is not None:
             return moved
@@ -198,9 +203,9 @@ def gate_runs(gate: PinGate, repo_root: Path) -> bool:
     """Say on stderr whether ``gate`` runs on this branch and why, and return whether it does."""
     reason = pin_change(gate, repo_root)
     if reason is None:
-        rests_on = ", ".join(scope.path for scope in PIN_SCOPES[gate])
+        paths = ", ".join(scope.path for scope in PIN_SCOPES[gate])
         _ = sys.stderr.write(
-            f"[pin] {gate}: the branch moves nothing it rests on ({rests_on}), so it does not run\n"
+            f"[pin] {gate}: the branch moves nothing it rests on ({paths}), so it does not run\n"
         )
         return False
     _ = sys.stderr.write(f"[pin] {gate}: runs, since {reason}\n")

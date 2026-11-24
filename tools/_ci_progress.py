@@ -167,7 +167,7 @@ _DECLARED = {
     "check-mutmut-witness": _OURS,
     "check-mull-plugin-facts": _OURS,
     "check-cpp-slices-census-build": either(_OURS, _CMAKE_BUILD),
-    "check-cpp-slices-census": _OURS,
+    "check-cpp-slices-census": either(_OURS, _CMAKE_BUILD),
     "actionlint": _SILENT,
 }
 

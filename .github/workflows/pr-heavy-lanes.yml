@@ -688,12 +688,15 @@ jobs:
 
       # The whole tree's census, taken on the first leg once its slice is
       # swept: the `mutation merge` job below holds the three slices' union to
-      # it.  The gate reads the branch's diff against `main` and runs only
-      # where it moved what decides which mutants a slice carries and how they
-      # are named, the Mull pin, a patch, the configuration, the slicing or the
-      # gate, logging which.  Its cost is the unsliced tree's build, on this
-      # leg alone, inside its budget; the census leaves with the leg's reports
-      # in the upload below.
+      # it.  The step also holds the leg's own sweep report to a dry run of the
+      # slice's tree, since a local run compares the slices' dry runs where the
+      # merge compares their sweeps.  The gate reads the branch's diff against
+      # `main` and runs only where it moved what decides which mutants a slice
+      # carries and how they are named, the Mull pin, a patch, the
+      # configuration, the slicing or the gate, logging which.  Its cost is the
+      # unsliced tree's build and the slice's dry run, on this leg alone,
+      # inside its budget; the census leaves with the leg's reports in the
+      # upload below.
       - name: Whole-tree census for the slices check (when its pin moved)
         if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && matrix.stage == '1' && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
         run: python/.venv/bin/python3 -m tools.check_cpp_slices_census --census

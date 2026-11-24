@@ -547,13 +547,13 @@ def test_the_mull_facts_gate_follows_the_sweep_that_configures_its_trees(tmp_pat
 
 
 def test_the_census_gate_s_steps_follow_the_sweep_in_its_lane(tmp_path: Path) -> None:
-    """The census is written beside the slice reports and compared with them.
+    """The census is written beside the sweep's reports, then the slices are built and held to it.
 
-    The sweep empties the commit's artifact directory before it writes the
-    slice reports, so a census written before it is gone when the comparison
-    reads it, and a comparison in another lane could read the directory before
-    the sweep filled it.  Both steps name the directory as the sweep does, by
-    the short hash of HEAD.
+    The sweep empties the commit's artifact directory before it writes its
+    reports, so a census written before it is gone when the comparison reads
+    it, and a comparison in another lane could read the directory before the
+    census is there.  A local sweep writes no slice's report, so the comparison
+    is the face that builds the slices.
     """
     runner = _sweeping(ci_runner(tmp_path))
     register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
@@ -568,11 +568,10 @@ def test_the_census_gate_s_steps_follow_the_sweep_in_its_lane(tmp_path: Path) ->
         [runner.python, "-m", "tools.check_cpp_slices_census", "--census"],
         runner.repo_root,
     )
-    assert compare.cmd == (
-        f"{runner.python} -m tools.check_cpp_slices_census"
-        + " --compare benchmarks/mutation/$(git rev-parse --short HEAD)"
+    assert (compare.cmd, compare.cwd) == (
+        [runner.python, "-m", "tools.check_cpp_slices_census", "--slices"],
+        runner.repo_root,
     )
-    assert compare.cwd == runner.repo_root
 
 
 def test_the_census_gate_refuses_a_catalog_without_the_sweep(tmp_path: Path) -> None:
