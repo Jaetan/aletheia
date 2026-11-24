@@ -181,22 +181,6 @@ jobs:
           python/.venv/bin/pip install --upgrade pip
           python/.venv/bin/pip install -e 'python/.[dev]'
 
-      # Restore-only: the exact-sha tree is seeded by pr-full-ci's push:main
-      # runs (the one workflow that saves it, same key + prefix), so
-      # a weekly run restores the newest match and the `.so` build inside
-      # `shake dist` is incremental instead of cold.
-      - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            build
-            _build
-            dist-newstyle
-            haskell-shim/dist-newstyle
-          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
-          restore-keys: |
-            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
-
       # UNSIGNED by design: no ALETHEIA_COSIGN_* is set, so `shake dist` skips
       # signing with a warning.  This job validates staging + recipes + the
       # bindings, not provenance — signing stays a release.yml concern, and
@@ -216,6 +200,29 @@ jobs:
       # recipe parity, and sources env.fish.
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
+
+      # The build tree's C objects are the installed clang's: its version names
+      # them in the build-tree key, so another clang build starts a clean tree.
+      - name: Name the installed clang build
+        id: clang-build
+        run: echo "build=$(clang-23 --version | sha256sum | cut -c1-16)" >> "${GITHUB_OUTPUT}"
+
+      # After the toolchain, whose clang build its key names.  Restore-only: the
+      # exact-sha tree is seeded by pr-full-ci's push:main
+      # runs (the one workflow that saves it, same key + prefix), so
+      # a weekly run restores the newest match and the `.so` build inside
+      # `shake dist` is incremental instead of cold.
+      - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            build
+            _build
+            dist-newstyle
+            haskell-shim/dist-newstyle
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-${{ github.sha }}
+          restore-keys: |
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-
 
       - name: Build the distribution tarball (unsigned)
         # --keep-going: every gate dist needs reports, whichever fails first.

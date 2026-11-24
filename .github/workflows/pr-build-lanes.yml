@@ -203,6 +203,12 @@ jobs:
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
+      # The build tree's C objects are the installed clang's: its version names
+      # them in the build-tree key, so another clang build starts a clean tree.
+      - name: Name the installed clang build
+        id: clang-build
+        run: echo "build=$(clang-23 --version | sha256sum | cut -c1-16)" >> "${GITHUB_OUTPUT}"
+
       # The build tree the sweep saved, so the gate's first build is an
       # incremental one over another tree's history, which its two clean builds
       # must then equal byte for byte.
@@ -215,9 +221,9 @@ jobs:
             _build
             dist-newstyle
             haskell-shim/dist-newstyle
-          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-${{ github.sha }}
           restore-keys: |
-            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-
 
       - name: Reproducible-build hash gate (the tree's build and two clean builds, sha256 compare)
         run: python3 -m tools.check_reproducible_build
@@ -371,6 +377,12 @@ jobs:
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
+      # The build tree's C objects are the installed clang's: its version names
+      # them in the build-tree key, so another clang build starts a clean tree.
+      - name: Name the installed clang build
+        id: clang-build
+        run: echo "build=$(clang-23 --version | sha256sum | cut -c1-16)" >> "${GITHUB_OUTPUT}"
+
       # stability_run errors if these are absent (build/libaletheia-ffi.so and
       # cpp/build/stability_bench).  Build them up front; the Go harness is
       # built/run by the runner itself.
@@ -391,9 +403,9 @@ jobs:
             _build
             dist-newstyle
             haskell-shim/dist-newstyle
-          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-${{ github.sha }}
           restore-keys: |
-            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-
 
       - name: Build the FFI library
         run: cabal run shake -- build
@@ -608,6 +620,13 @@ jobs:
         if: env.LANE_MEASURES != '0'
         run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
+      # The build tree's C objects are the installed clang's: its version names
+      # them in the build-tree key, so another clang build starts a clean tree.
+      - name: Name the installed clang build
+        id: clang-build
+        if: env.LANE_MEASURES != '0'
+        run: echo "build=$(clang-23 --version | sha256sum | cut -c1-16)" >> "${GITHUB_OUTPUT}"
+
       # The kernel every suite loads.  Restore-only: pr-full-ci is the one
       # saver, and `cabal run shake -- build` no-ops on a hit.
       - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
@@ -619,9 +638,9 @@ jobs:
             _build
             dist-newstyle
             haskell-shim/dist-newstyle
-          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-${{ github.sha }}
           restore-keys: |
-            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-
 
       - name: Build the FFI library
         if: env.LANE_MEASURES != '0'

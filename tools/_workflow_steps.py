@@ -174,6 +174,7 @@ EXEMPT: tuple[WorkflowStep, ...] = (
     _exempt(PatternText(r"^\s*mkdir -p ~/\.agda\b"), _INSTALL),
     _exempt(PatternText(r"\btools/install_rust_toolchain\.sh\b"), _INSTALL),
     _exempt(PatternText(r"\bcpp/toolchain/install\.sh\b"), _INSTALL),
+    _exempt(PatternText(r'^\s*echo "build=\$\(clang-23 --version'), _CACHE),
     _exempt(PatternText(r'^\s*echo "CCACHE_DIR='), _SETUP),
     _exempt(PatternText(r"^\s*ccache --(zero|show)-stats\b"), _CACHE),
     _exempt(PatternText(r"\bsudo apt-get\b"), _INSTALL),

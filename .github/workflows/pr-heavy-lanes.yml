@@ -439,6 +439,13 @@ jobs:
         if: env.LANE_SWEEPS != '0'
         run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libclang-23-dev llvm-23-dev libstdc++-15-dev ccache fish rpm
 
+      # The build tree's C objects are the installed clang's: its version names
+      # them in the build-tree key, so another clang build starts a clean tree.
+      - name: Name the installed clang build
+        id: clang-build
+        if: env.LANE_SWEEPS != '0'
+        run: echo "build=$(clang-23 --version | sha256sum | cut -c1-16)" >> "${GITHUB_OUTPUT}"
+
       # No prebuilt Mull deb exists past LLVM 15, and the supported toolchain is
       # clang-23: UB can differ by compiler version, so the mutation lane MUST
       # test clang-23 codegen.  tools/build_mull.sh builds Mull from source
@@ -583,9 +590,9 @@ jobs:
             _build
             dist-newstyle
             haskell-shim/dist-newstyle
-          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-${{ github.sha }}
           restore-keys: |
-            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-clang${{ steps.clang-build.outputs.build }}-
 
       # The lane's setup ends here.  Each check after it waits on the steps
       # making what it reads rather than on every step before it, so one check's
