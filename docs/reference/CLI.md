@@ -552,8 +552,8 @@ else a `build/` directory seen from the working directory, else
 `/usr/local/lib`, so the kernel comes from a release, the bundle or its
 `.deb`/`.rpm` (installed under `/opt/aletheia`, whose `env.sh` sets
 `ALETHEIA_LIB`). The binding reaches the kernel through cgo, so the build needs
-a C compiler: without one, Go builds a program that refuses every command with
-`ffi backend requires cgo on linux; build with CGO_ENABLED=1`. The binary is
+a C compiler: without one, Go builds a program whose every command but
+`template` refuses with `ffi backend requires cgo on linux; build with CGO_ENABLED=1`. The binary is
 named `aletheia` and lands in `$(go env GOPATH)/bin`; the Python package's
 command has the same name, and the one earlier on `PATH` runs.
 

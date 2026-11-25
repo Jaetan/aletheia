@@ -469,6 +469,12 @@ def proxy_over_cache() -> EnvValue:
     return EnvValue(f"file://{cache}/cache/download,{proxy}")
 
 
+def offline_proxy(first: Path) -> EnvValue:
+    """Return go's proxies as the module cache ``first``, then the user's, and no other."""
+    user = go_env(EnvName("GOMODCACHE"))
+    return EnvValue(f"file://{first}/cache/download,file://{user}/cache/download,off")
+
+
 def github_environment(cache: Path, release: Release) -> dict[EnvName, EnvValue]:
     """Return go's environment fetching this repository from GitHub alone, into ``cache``.
 

@@ -24,7 +24,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   github.com/Jaetan/aletheia/go/cmd/aletheia/v6@latest` installs it without a
   clone. The program still opens the verified kernel, `libaletheia-ffi.so`, from
   a release's bundle or package, and is built with a C compiler, without which
-  it refuses every command. No module
+  every command but `template` refuses. No module
   requires it, so no `go.sum` records its hash: before the tag the release
   installs it from the tree as a consumer would, and once tagged, what GitHub
   serves is held to the tagged commit. A release now goes out in two pushes,

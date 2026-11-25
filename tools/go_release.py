@@ -43,8 +43,9 @@ Commands:
   stdin.  A release goes out in two pushes, since GitHub creates no event for
   tags when more than three are pushed at once: every released module's
   ``go/`` tag together, then ``vX.Y.Z`` alone, once REMOTE holds every ``go/``
-  tag on its commit.  The tags of one version name one commit, each ``go/`` tag
-  a released module's directory, and that commit passes ``check-commit``.
+  tag on its commit.  A push of more than three release tags is refused.  The
+  tags of one version name one commit, each ``go/`` tag a released module's
+  directory, and that commit passes ``check-commit``.
 * ``check-published X.Y.Z``: the released modules at ``vX.Y.Z``, fetched from
   GitHub, carry the hashes the tagged commit records, a command the hashes of
   the tagged commit's own objects.  The commit is the one the release's tags
@@ -112,6 +113,7 @@ from tools._go_modules import (
     download,
     fetch,
     github_environment,
+    offline_proxy,
     proxy_over_cache,
     read_release,
     recorded,
@@ -151,6 +153,8 @@ _RELEASE_TAG = re.compile(rf"^(?:(?P<directory>go(?:/[^/]+)*)/)?v(?P<version>{VE
 _PATH_GOES_ON = r"[A-Za-z0-9_~\-]|\.[A-Za-z0-9_~\-]"
 _REF_FIELDS = 4
 _NO_OBJECT = re.compile(r"^0+$")
+# The most tags GitHub still creates events for when they are pushed at once.
+_MOST_TAGS = 3
 
 
 class _Pushed(NamedTuple):
@@ -254,9 +258,11 @@ def _installs(root: Path, release: Release, module: Module, scratch: Path) -> bo
     consumer's install fetches them from GitHub once the tags exist.  That route
     reads the command's own go.mod, refuses a replace directive and names the
     binary after the path less its major, none of which a build in the
-    command's directory exercises.  It verifies what it fetches against a
-    checksum database, never the command's go.sum, so it runs with ``GOSUMDB``
-    off: no lookup leaves the machine.
+    command's directory exercises.  It would
+    ask a proxy for the third-party modules and a checksum database for their
+    hashes, never the command's go.sum: both are off, so those modules come from
+    what the builds before it fetched, then from the user's module cache, and one
+    neither holds fails the install.
     """
     version = release.tag_version
     name = posixpath.basename(module.directory)
@@ -266,7 +272,7 @@ def _installs(root: Path, release: Release, module: Module, scratch: Path) -> bo
         scratch / "tree",
         scratch / f"install-{name}",
         release,
-        proxy=proxy_over_cache(),
+        proxy=offline_proxy(scratch / "build"),
         flags=flags,
     )
     target = W(f"{module.path}@{version}")
@@ -497,13 +503,21 @@ def check_tags(root: Path, lines: Iterable[RefLine], remote: RemoteName) -> list
     and ``vX.Y.Z`` is the one the release workflow runs on.
     """
     pushed, others, found = _read_pushed(root, lines)
+    sent = sum(len(tags) for tags in pushed.values())
+    if sent > _MOST_TAGS:
+        found.append(
+            Prose(
+                f"{sent} release tags in one push: GitHub creates no event for tags when more than"
+                + f" {_MOST_TAGS} are pushed at once"
+            )
+        )
     for version, tags in sorted(pushed.items()):
         named = {tag.commit for tag in tags}
         if len(named) != 1:
             listed = ", ".join(sorted(f"{commit:.12}" for commit in named))
             found.append(Prose(f"release {version}'s tags name {len(named)} commits: {listed}"))
             continue
-        alone = sum(len(tags) for tags in pushed.values()) + len(others) == 1
+        alone = sent + len(others) == 1
         found.extend(_push_findings(root, tags, remote, alone=alone))
         found.extend(check_commit(root, next(iter(named)), version))
     return found

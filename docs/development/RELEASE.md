@@ -139,7 +139,9 @@ history, test fixtures and deliberate prose. The sweep holds the rest: the
 module at vX.Y.Z from the tree only where the tree hashes as every `go.sum` line
 records, and otherwise fetches it from GitHub, which holds no such tag yet; once
 every one is served, it runs `go install` on the command line at vX.Y.Z from the
-tree, as a consumer installs it.
+tree, as a consumer installs it but off the network: the third-party modules
+come from what the step's own builds downloaded, then from the local module
+cache, and one neither holds fails the step.
 
 ### 3. ⚑ CHANGELOG — cut, then commit (signed)
 
@@ -275,10 +277,10 @@ database keeps the first hash anyone fetches through the public proxy, so a
 patch release. `check-commit` holds the commit to the recorded hashes and has
 go fetch the command line at its tag. The pre-push hook
 (`tools/go_release.py check-tags`, written over the copy in `.git/hooks` by the
-installer above) refuses a push of a version's Go tags unless all three go
-together, naming one commit that passes `check-commit`, and a push of `vX.Y.Z`
-unless it goes alone, every Go tag of the version already on GitHub at that
-commit. The tag ruleset lets an admin alone create, move or delete a `v*` or
+installer above) refuses a push of more than three release tags, a push of a
+version's Go tags unless all three go together, naming one commit that passes
+`check-commit`, and a push of `vX.Y.Z` unless it goes alone, every Go tag of the
+version already on GitHub at that commit. The tag ruleset lets an admin alone create, move or delete a `v*` or
 `go/*` tag.
 
 The `vX.Y.Z` push runs `release.yml`, which keyless-signs the tarball + `.deb` +

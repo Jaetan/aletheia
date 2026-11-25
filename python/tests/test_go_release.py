@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import shutil
 from typing import TYPE_CHECKING
+from zipfile import ZipFile
 
 import pytest
 from _git_repo import commit, git
@@ -375,8 +376,8 @@ def test_tags_off_the_release_are_refused(prepared: Path, tmp_path: Path) -> Non
     stray, candidate = TagName("go/cmd/v2.0.0"), TagName("go/v2.0.0-rc1")
     _tag(root, stray, candidate)
     remote = _remote(root, tmp_path / "remote.git")
-    found = _only(check_tags(root, _ref_lines(root, *GO_TAGS, stray), remote))
-    assert "go/cmd is no released module" in found
+    found = check_tags(root, _ref_lines(root, *GO_TAGS, stray), remote)
+    assert any("go/cmd is no released module" in line for line in found)
     found = _only(check_tags(root, _ref_lines(root, candidate), remote))
     assert "is no <directory>/vX.Y.Z" in found
     _replace(root, RelPath("README.md"), FileText("moved on\n"))
@@ -407,8 +408,19 @@ def test_a_release_push_out_of_order_is_refused(prepared: Path, tmp_path: Path) 
     found = _only(check_tags(prepared, _ref_lines(prepared, ROOT_TAG), partial))
     assert found.startswith(f"v2.0.0 is pushed before go/cmd/tool/v2.0.0 is on {partial} at ")
     holding = _remote(prepared, tmp_path / "holding.git", *GO_TAGS)
-    found = _only(check_tags(prepared, _ref_lines(prepared, *RELEASE_TAGS), holding))
-    assert found == "v2.0.0 goes alone, after the release's go/ tags"
+    together = check_tags(prepared, _ref_lines(prepared, *RELEASE_TAGS), holding)
+    assert "v2.0.0 goes alone, after the release's go/ tags" in together
+
+
+@pytest.mark.process(_DRIVES_GIT_AND_GO)
+@pytest.mark.usefixtures("offline")
+def test_more_than_three_release_tags_in_a_push_are_refused(prepared: Path, tmp_path: Path) -> None:
+    """GitHub creates no event for tags when more than three are pushed at once: four are named."""
+    remote = _remote(prepared, tmp_path / "remote.git", *GO_TAGS)
+    found = check_tags(prepared, _ref_lines(prepared, *RELEASE_TAGS), remote)
+    assert any(line.startswith("4 release tags in one push") for line in found)
+    three = check_tags(prepared, _ref_lines(prepared, *GO_TAGS), remote)
+    assert not any("release tags in one push" in line for line in three)
 
 
 @pytest.mark.process(_DRIVES_GIT_AND_GO)
@@ -443,10 +455,15 @@ def test_check_serves_the_prepared_versions_and_builds(
 
 @pytest.mark.process(_DRIVES_GIT_AND_GO)
 @pytest.mark.usefixtures("offline")
-def test_the_install_rehearsal_asks_no_checksum_database(
+def test_the_install_rehearsal_stays_off_the_network(
     prepared: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A version's install verifies what it fetches against a checksum database: GOSUMDB is off."""
+    """An install asks a proxy and a checksum database: the rehearsal's route holds neither.
+
+    The machine's own proxy is one that does not exist, so a rehearsal handed it
+    would carry its name.
+    """
+    monkeypatch.setenv("GOPROXY", "https://proxy.invalid,direct")
     real, seen = go_release.run_go, list[Environment]()
 
     def run_go(cwd: Path, *words: CommandWord, env: Environment) -> Ran:
@@ -458,6 +475,56 @@ def test_the_install_rehearsal_asks_no_checksum_database(
     assert check(prepared) == 0
     (env,) = seen
     assert env[EnvName("GOSUMDB")] == "off"
+    built, cache, after = env[EnvName("GOPROXY")].split(",")
+    assert built.startswith("file://")
+    assert built.endswith("/build/cache/download")
+    assert cache.startswith("file://")
+    assert after == "off"
+
+
+def _module_proxy(root: Path, path: GoModule, version: GoVersion) -> Path:
+    """Write a file proxy serving one module version of ``package third``, and return its root."""
+    versions = root / path / "@v"
+    versions.mkdir(parents=True)
+    manifest = f"module {path}\n\ngo 1.26.0\n"
+    source = "package third\n\nconst Third = 3\n"
+    _ = (versions / f"{version}.info").write_text(
+        f'{{"Version": "{version}", "Time": "2000-01-01T00:00:00Z"}}', encoding="utf-8"
+    )
+    _ = (versions / f"{version}.mod").write_text(manifest, encoding="utf-8")
+    _ = (versions / "list").write_text(f"{version}\n", encoding="utf-8")
+    with ZipFile(versions / f"{version}.zip", "w") as bundle:
+        bundle.writestr(f"{path}@{version}/go.mod", manifest)
+        bundle.writestr(f"{path}@{version}/third.go", source)
+    return root
+
+
+@pytest.mark.process(_DRIVES_GIT_AND_GO)
+@pytest.mark.usefixtures("offline")
+def test_the_rehearsal_takes_third_party_modules_from_the_builds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """On an empty module cache the builds fetch a third-party module, and the rehearsal reads it.
+
+    The module is on the machine's proxy alone, which the rehearsal never asks:
+    without what the builds fetched, its lookup is disabled and the command does
+    not install.
+    """
+    third, version = GoModule("example.com/third"), GoVersion("v1.0.0")
+    monkeypatch.setenv("GOPROXY", f"file://{_module_proxy(tmp_path / 'proxy', third, version)}")
+    monkeypatch.setenv("GOSUMDB", "off")
+    monkeypatch.setenv("GOMODCACHE", str(tmp_path / "modules"))
+    files = _toy_files()
+    manifest, main = RelPath("go/cmd/tool/go.mod"), RelPath("go/cmd/tool/main.go")
+    files[manifest] = FileText(files[manifest] + f"\nrequire {third} {version}\n")
+    files[main] = FileText(files[main].replace(f'\t"{EXCEL}"\n', f'\t"{EXCEL}"\n\t"{third}"\n'))
+    files[main] = FileText(files[main].replace("excel.Doubled)", "excel.Doubled, third.Third)"))
+    root = _toy(tmp_path / "toy", files)
+    assert move_major(root) == 0
+    assert write(root) == 0
+    _ = commit(root, "prepare 2.0.0")
+    assert check(root) == 0
+    assert f"go install {TOOL_2}@v2.0.0 installs the command tool" in capsys.readouterr().out
 
 
 @pytest.mark.process(_DRIVES_GIT_AND_GO)
