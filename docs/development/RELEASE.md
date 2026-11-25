@@ -52,14 +52,14 @@ path (see [Release paths](#release-paths)); the local fallback differs only at t
 signing/publish steps and is noted inline.
 
 **At a glance:** (0) pick the version; (1) branch off `main`; (2) bump the
-version stamps and record the Go modules' hashes; (3) cut the CHANGELOG and
-commit, signed; (4) rebuild the kernel and smoke the version; (5) run the
-release gates; (6) push, open the PR, merge it; (7) dispatch the release
-workflow as a dry run; (8) tag the merged commit in two pushes, the Go tags
-first, checked from GitHub, then `vX.Y.Z` alone, which starts the release
-workflow; (9) verify the draft Release as a consumer and publish it; (10) the
-first image's one-time GHCR setup; (11) record the release in the project's
-docs.
+version stamps and record the Go modules' hashes; (3) cut the CHANGELOG, with
+the release note, and commit, signed; (4) rebuild the kernel and smoke the
+version; (5) run the release gates; (6) push, open the PR, merge it; (7)
+dispatch the release workflow as a dry run; (8) tag the merged commit in two
+pushes, the Go tags first, checked from GitHub, then `vX.Y.Z` alone, which
+starts the release workflow; (9) verify the draft Release as a consumer and
+publish it; (10) the first image's one-time GHCR setup; (11) record the release
+in the project's docs.
 
 ### 0. Decide the version (SemVer)
 
@@ -144,6 +144,11 @@ come from what the step's own builds downloaded, then from the local module
 cache, and one neither holds fails the step.
 
 ### 3. ⚑ CHANGELOG — cut, then commit (signed)
+
+Write the release note, `docs/releases/vX.Y.Z.md`, here or in a pull request merged
+before this one: every breaking change of the release, one line each under what a
+reader uses (every binding, the C ABI, a language, the command lines), then the main
+additions and a link to the tag's CHANGELOG. It becomes the release page at step 9.
 
 Rename `## [Unreleased]` → `## [X.Y.Z] — YYYY-MM-DD` and add a fresh empty
 `## [Unreleased]` above it, changing no other line. This **must** happen in the
@@ -315,11 +320,11 @@ cosign verify-blob --certificate aletheia.tar.gz.crt --signature aletheia.tar.gz
 Do the same for the `.deb`/`.rpm`, and `cosign verify` the image (see
 [Verifying release artifacts](#verifying-release-artifacts-consumer-side)).
 The Go modules were checked from GitHub at step 8.3 and again by `release.yml`.
-Optionally set the Release notes from the `[X.Y.Z]` CHANGELOG section
-(`gh release edit vX.Y.Z --notes-file <section>`), then flip **draft →
+Set the release page's text from the release note
+(`gh release edit vX.Y.Z --notes-file docs/releases/vX.Y.Z.md`), then flip **draft →
 published** (`gh release edit vX.Y.Z --draft=false --latest`).
 **Gate:** every artifact verifies OK against the tag identity; the Release is
-published and marked latest.
+published, marked latest and shows the note.
 
 ### 10. ⚑ GHCR one-time setup (first release with an image)
 

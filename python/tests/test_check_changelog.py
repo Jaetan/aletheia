@@ -39,11 +39,13 @@ from tools.check_changelog import (
     EntryCount,
     Gain,
     Mention,
+    Overlong,
     UnreleasedHeaders,
     entry_counts,
     gained_entries,
     headers_refused,
     main,
+    overlong_entries,
     owed,
     probe_mentions,
     unreleased_headers,
@@ -408,7 +410,7 @@ def test_e2e_one_header_per_category_passes(
 ) -> None:
     """A header repeated only in a released section is not the Unreleased one."""
     changelog = Prose(
-        "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- one\n\n### Fixed\n\n- two\n\n"
+        "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- **One.**\n\n### Fixed\n\n- **Two.**\n\n"
         + "## [1.0.0]\n\n### Changed\n\n- released\n"
     )
     assert _gate(tmp_path, monkeypatch, Branch([], [], BASE), changelog=changelog) == 0
@@ -688,3 +690,62 @@ def test_e2e_a_changelog_naming_a_probe_fails(
         + "An entry states its change and the gate or test that holds it; the probe that showed\n"
         + "it belongs to the commit message.\n"
     )
+
+
+_RELEASED = Prose(
+    "## [1.0.0] \N{EM DASH} 2026-01-01\n\n### Added\n\n- **Long.** 1\n  2\n  3\n  4\n"
+)
+
+
+def _unreleased(entries: Prose) -> Prose:
+    """Return a changelog whose unreleased section holds ``entries``, then a released one."""
+    return Prose(f"# Changelog\n\n## [Unreleased]\n\n### Added\n\n{entries}\n\n{_RELEASED}")
+
+
+def test_an_entry_of_three_lines_under_a_bold_lead_is_within_its_size() -> None:
+    """Three lines, one of 80 columns, pass, and a released section is left as it was written."""
+    assert not overlong_entries(_unreleased(Prose("- **A lead.** " + "x" * 66 + "\n  2\n  3")))
+
+
+def test_a_fourth_line_is_over_the_size() -> None:
+    """A wrapped line counts as the source writes it: four are named at the entry's first."""
+    found = overlong_entries(_unreleased(Prose("- **A lead.** 1\n  2\n  3\n  4")))
+    assert found == [Overlong(7, (Prose("4 lines, 3 allowed"),))]
+
+
+def test_a_nested_list_counts_as_its_entry() -> None:
+    """An entry holds its own nested items: three of them push it over the size."""
+    found = overlong_entries(_unreleased(Prose("- **A lead.** 1\n  - a\n  - b\n  - c")))
+    assert found == [Overlong(7, (Prose("4 lines, 3 allowed"),))]
+
+
+def test_a_line_wider_than_the_changelogs_is_over_the_size() -> None:
+    """A line of 81 columns is named with its width: an entry's lines hold at most 80."""
+    found = overlong_entries(_unreleased(Prose("- **A lead.** " + "x" * 67)))
+    assert found == [Overlong(7, (Prose("a line of 81 columns, 80 allowed"),))]
+
+
+def test_an_entry_without_a_bold_lead_is_over_the_size() -> None:
+    """The lead is what a reader skims: an entry opening in plain text has none."""
+    found = overlong_entries(_unreleased(Prose("- plain text.")))
+    assert found == [Overlong(7, (Prose("no bold lead"),))]
+
+
+def test_every_entry_over_the_size_is_named() -> None:
+    """Two entries over the size are both listed, in the changelog's order."""
+    entries = Prose("- **A lead.** 1\n  2\n  3\n  4\n- plain")
+    assert [found.line for found in overlong_entries(_unreleased(entries))] == [7, 11]
+
+
+def test_e2e_an_unreleased_entry_over_its_size_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The gate exits 1 naming the entry's line and what is over."""
+    branch = _branch(
+        RelPath("python/aletheia/thing.py"), Prose("fix(python): a bug"), changelog=True
+    )
+    over = Prose(ENTRY + "  2\n  3\n  4\n")
+    assert _gate(tmp_path, monkeypatch, branch, changelog=over) == 1
+    err = capsys.readouterr().err
+    assert "an entry under '## [Unreleased]' is over its size" in err
+    assert "  line 7: 4 lines, 3 allowed\n" in err

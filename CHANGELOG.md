@@ -12,3504 +12,480 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
-- **The Go Excel module is released with every release, and each Go tag publishes
-  what the release verified.** It is tagged `go/excel/vX.Y.Z` beside `go/vX.Y.Z`,
-  the tags Go looks for when a module lives in a subdirectory; the two modules'
-  hashes are recorded from the tree before the tags exist, and a tag whose module
-  hashes otherwise is refused.
+- **The Go Excel module is released with every release.** It is tagged
+  `go/excel/vX.Y.Z` beside `go/vX.Y.Z`; a tag of either whose module hashes
+  otherwise than the tree recorded before the tags exist is refused.
 
-- **The Go command line is released with every release.** It is tagged
-  `go/cmd/aletheia/vX.Y.Z` beside the core's and the loader's tags, its path
-  carrying the release's major, so `go install
-  github.com/Jaetan/aletheia/go/cmd/aletheia/v6@latest` installs it without a
-  clone. The program still opens the verified kernel, `libaletheia-ffi.so`, from
-  a release's bundle or package, and is built with a C compiler, without which
-  every command but `template` refuses. No module
-  requires it, so no `go.sum` records its hash: before the tag the release
-  installs it from the tree as a consumer would, and once tagged, what GitHub
-  serves is held to the tagged commit. A release now goes out in two pushes,
-  since GitHub starts no workflow for a push of more than three tags: the Go
-  tags together, checked from GitHub, then `vX.Y.Z` alone; the pre-push hook
-  refuses any other order.
+- **The Go command line is released with every release.** It installs with
+  `go install github.com/Jaetan/aletheia/go/cmd/aletheia/v6@latest`, needs a C
+  compiler for all but `template`, and opens a release's `libaletheia-ffi.so`.
 
-- **A predicate is an operand of until and release.** `Predicate` gains
-  `until`, `release`, `metric_until` and `metric_release`, and a property's
-  four take a predicate on their right, so Python relates two states as C++
-  does with `until(atomic(p), atomic(q))`. Before, both sides had to be
-  properties, each lifted with `.always()` or `.eventually()`. The API
-  guide's examples of implication, until, release and their metric forms
-  decided nothing: on a trace their comment says holds and on one it says
-  fails, each gave one verdict for both, two always holding and three always
-  failing. They are rewritten, the until and release ones on predicates, and
-  `python/tests/test_doc_example_semantics.py` streams twenty of the
-  documentation's temporal examples through the kernel on a trace each should
-  hold on and one each should fail on, past its first frame where the example
-  is an `always`.
+- **A predicate is an operand of until and release.** Python's `Predicate`
+  gains `until`, `release`, `metric_until` and `metric_release`, and a
+  property's own four methods take a predicate on their right.
 
-- **Every example in the code's own comments runs.** The Python harness runs
-  the fences of the package's docstrings, 53 in 13 modules, read from each
-  module's source; a fence opened `python runner:ProgramRunner` is a whole
-  program, run in a process of its own because it starts the async client's
-  threads. The C++ harness compiles and runs the examples in the comments of
-  `check.hpp`, `log.hpp` and `yaml.hpp`. Go's package examples are seven
-  `Example` functions `go test` holds to their output, in place of the code
-  blocks of the package comments, and the Rust doc comments' two `no_run`
-  examples run. Every fence of the C++ and Go READMEs is also built as
-  written, a complete program with nothing the harness adds, and each binding
-  refuses a code example in its comments that its harness would not run.
-  Running them found examples that could not run: a decimal built before any
-  client had started the runtime, names nothing defined, a mock backend fed a
-  reply that is not JSON and a frame its DLC does not size, and async examples
-  that defined a coroutine and never called it.
+- **Every example in the code's own comments runs.** Each binding refuses a
+  code example in its comments that its harness would not run, and every fence
+  of the C++ and Go READMEs is built as written.
 
-- **The private-import whitelist reads every Python file under `python/tests/`,
-  the helper modules and `conftest.py` included.** A reach-through into a
-  `_`-prefixed client module moved into a helper was invisible to the gate;
-  it now needs its row like any test's. It found one: the suite's own
-  `conftest.py` releasing the kernel's runtime state.
+- **A Rust test drives the async client on its own thread.**
+  `aletheia::testing::TurnExecutor` runs each queued `AsyncClient` call there
+  at its turn, in queue order, and panics if a future waits with none queued.
 
-- **No document turns a paragraph into a heading with a line of `-` or `=`.**
-  The documentation gate's new `atx_headings` arm names every setext heading of a
-  tracked document. It found two documents whose metadata block rendered as one
-  large heading, where a thematic break was meant; both are fixed.
+- **No test reads a clock, waits on a duration or starts a thread.** A gate
+  over every binding's test files fails on a new site, and Python's async
+  cancellation tests run through `aletheia.asyncio.testing.TurnExecutor`.
 
-- **The Python suite is held to determinism while it runs, and every property
-  test draws a fixed sample.** `tools/_determinism_guard.py`, registered by
-  the suite's `conftest.py`, gives every test one clock that stands still
-  until the test's `clock` fixture advances it (`time`'s clocks and calendar
-  defaults and `datetime`'s current instant, library time stamps included),
-  and fails a test that starts a thread, sleeps, schedules a loop callback for
-  later or waits with a timeout, wherever the call is made: the static gate
-  reads what a test spells, the guard what it runs. It found what the gate
-  could not see: `tools/_scheduler.py`'s lanes and `tools/mutation_rust.py`'s
-  shards ran on thread pools under 20 tests, a test asserted a step's duration
-  read from the clock, and hypothesis's default deadline decided the property
-  tests by the machine's speed (6 of 14 failed under a slowed clock). The
-  tools that run work concurrently (`run_lanes`, `Runner.run`, `run_rust`,
-  `query_units`) take the executor they run on, and a test hands them the one
-  in `python/tests/_executors.py`, which runs each call on the test's own
-  thread in an order the test picks; `run_lanes`'s `serial=True` is
-  `executor=None`. Property tests draw one sample in every binding, seeded
-  from `python/tests/fixtures/property_seed`: Go's `testing/quick` checks take
-  a `Rand` from it and each hypothesis test a `@seed`, and neither hypothesis
-  profile keeps an example database or a deadline.
-  `tools/check_test_determinism.py` refuses a property test left unseeded
-  (`random:` rows), its syntax-tree arms now in
-  `tools/_determinism_syntax.py`. The guard is installed when the first pytest
-  session starts and removed when the last ends, so mutmut, which runs pytest
-  inside its own process, keeps the real clock and threads.
+- **A doc-example harness for the Rust binding.** `cargo test` builds every
+  Rust fence of every tracked Markdown file and runs it on the kernel, the
+  Tutorial's as one program; the pitch's loop now starts its stream.
 
-- **The documentation gate is a set of arms, one claim each:
-  `tools/docs_arms/`.** `tools/check_docs.py` reads every tracked Markdown file
-  once and runs each arm over the same texts. Its own checks are arms like the
-  rest: `links` (every relative link and anchor resolves in a fresh checkout)
-  and `labels` (no living document carries a transient label or a link into the
-  agent memory store), each now held by tests on planted repositories where the
-  gate's own code was held by almost none. Fourteen arms hold that the C symbols
-  the building guide names are the shim's exports; the Go standard names exactly
-  the fuzz targets the binding defines, and nothing schedules a fuzz run; the
-  build trees and the Go binary the documents name are ignored by the tracked
-  rules, and a venv is ignored at its sanctioned path and at no other top-level
-  one; the index names every document; the building guide's paragraphs are one
-  line each; every document gives the current phase the phase table's word;
-  every pip extra a README names is defined; the README's project tree is the
-  tracked top-level directories; the dependency ledger has its one home; a
-  section number cited beside a link names a heading of the target; every shake
-  target a document shows exists; the opening README.md shares with the pitch is
-  one text; the benchmarks guide states what the baselines, the schema and the
-  residency test record; and every path the building guide names is tracked. The
-  ignore rules are asked in a fresh repository holding only the tracked ignore
-  files, since the `*` file `python -m venv` writes inside a venv answers for
-  any rule otherwise. `python/tests/test_check_docs.py` refuses an arm module
-  the gate does not run. Two arms were found blind, and each was fixed (the
-  venv's own ignore file; an extras list with a stray comma). Mutation rounds
-  over the gate and every arm ran in private clones: the first ran 273 mutants
-  and killed 206, and each survivor that changes behaviour was then held by a
-  test shown red with the mutant applied, or fixed in the arm; the gate, its
-  shared readers and the two arms that were its own checks now kill all 53
-  mutants run on them. Two more rounds on the lines the fixes changed found 31,
-  then 47, surviving mutants that change behaviour: 58 are held by tests, and 20
-  are dismissed, each a regular-expression variant told apart only by input
-  outside the arm's claim (a case flag, a Unicode digit, an unclosed bracket, a
-  run of whitespace) or by an order Python randomises per run. The rounds stop
-  there, since a regular expression has no end of such variants.
+- **A ratchet on imprecise Python type hints.** A hint holding `Any`, `object`
+  or an unrefined `str`, `int`, `float` or `bytes` is refused unless the record
+  names it; prose is typed `aletheia.common_types.Prose`.
 
-- **A Rust test reads the kernel stand-in's counts:
-  `rust/tests/kernel_releases.rs`.** The recording kernel, the stand-in that
-  refuses every call quoting its arguments and counts the closes and frees it is
-  handed, was a C++ test target under `cpp/tests`, so only the C++ suite could
-  read a release the real kernel acknowledges without reading. It is now one of
-  the stand-ins `cabal run shake -- build` makes beside the library (`haskell-
-  shim/test/recording_kernel.c`, against the kernel's own header, at
-  `build/stand-ins/recording_kernel.so`), where every binding's tests load
-  theirs. The Rust test points `ALETHEIA_LIB` at it in a process of its own,
-  reads one free after a command and one close after the client's drop, and
-  kills the one mutant the Rust record carried as a survivor, the backend's
-  `Drop`, which only a leak checker on a nightly toolchain was thought able to
-  see. The Rust record reads no survivor and an empty ledger.
-
-- **A Rust test drives the async client on its own thread:
-  `aletheia::testing::TurnExecutor`.** `AsyncClient` runs its sync client on a
-  worker thread, so every Rust async test ran a thread beside it, and the
-  in-flight cancellation test met that thread through a condition-variable
-  rendezvous; the queued-cancellation test dropped a call that the worker may
-  or may not have started, so which path it took turned on scheduling. A test
-  now builds the sync `Client` itself and hands it to `turns.adopt(client)`,
-  which returns the `AsyncClient`; `turns.block_on(future)` runs each queued
-  call on the test's thread at its turn, in queue order, and panics rather
-  than hangs when a future waits with no call queued, and `run_turn()` runs one
-  call for a test that steps by hand. A call dropped before its turn never
-  reaches the client, and one dropped from inside the backend during its turn
-  runs to completion with its result discarded, each now reached on every run.
-  The worker thread is unchanged for every other caller. The Rust twin of
-  Python's `aletheia.asyncio.testing.TurnExecutor`.
-
-- **A DBC load may not outgrow its input: the `load scaling` check.** Each
-  binding's scaling benchmark measures three load sweeps, each size double the
-  one before: `dbc_size`, a DBC of 1,250 to 10,000 messages (2,500 to 10,000
-  with `--quick`), and two literal sweeps of 12,500 to 100,000 digits (25,000
-  to 100,000 with `--quick`), `text_literal_length`, a DBC text whose one
-  signal factor is `1.` followed by that many zeros, and
-  `json_literal_length`, the same DBC as a `parseDBC` command whose factor is
-  that JSON number, sent through each binding's raw command entry. Each point
-  records the least load time and the least allocated bytes of its runs, the
-  bytes being the difference of two reads of the kernel's allocation count
-  around the load. `tools/benchmark_gate.py --bench scaling` fails when a
-  binding's allocation over a sweep grows more than ×2.25 per doubling, or
-  when a binding reports no sweep, and prints the times without gating them:
-  the count repeats to within a few kilobytes from run to run, where a load's
-  time moves with the machine and the collector. On one machine the four
-  bindings allocated ×4.20 to ×4.21 more from 2,500 to 10,000 messages and
-  ×3.98 (text) and ×3.92 (JSON) more from 25,000 to 100,000 digits, where a
-  JSON array parser that appends each element at the end allocated ×6.93 to
-  ×7.01 and a literal fold that builds the whole number ×15.00 (text) and
-  ×15.10 (JSON), against the ×5.06 allowed. The sweeps run on every pull
-  request as `benchmark.yml`'s `load scaling` leg, a required check: no path
-  filter skips it, and `tools/benchmark_scope.py` decides inside the job
-  whether the diff can move a measurement (the kernel, a binding, the harness
-  or its gate), so a pull request of documentation alone passes it without
-  measuring. The throughput leg asks the same question in place of its path
-  filter. `benchmarks/run_all.sh` takes `--quick`, and `benchmarks/compare.py`
-  tables the three.
-
-- **Three gates on what the kernel's wire and build promise.**
-  `tools/check_wire_code_emitters.py` (the Shake target
-  `check-wire-code-emitters`, replacing `check-bound-enforcement`) reads the
-  generated Haskell of the runtime closure and fails on a wire code whose
-  constructor is only ever matched, never built; it found the six codes
-  above and `frame_byte_count`. `tools/check_gates_reached.py` fails on a Shake `check-*` target that
-  no CI step runs and no rule needs (`check-bound-enforcement` was one, never
-  run since it was written; the redundant `check-spdx-headers` target, a
-  second entry point to the gate CI runs as a Python step, is removed).
-  `tools/check_shim_builds_no_kernel_value.py` fails on a generated
-  constructor the shim applies rather than matches. `check-erasure` also holds
-  `CANFrame` to its three runtime fields, so the byte-range proof stays erased.
-
-- **No test reads a clock or starts a thread,
-  `tools/check_test_determinism.py`.** The tests run on machines of very
-  different power: a test that waits on a duration passes or fails by how fast
-  the machine was, and one that races a thread by how it was scheduled; a
-  larger timeout makes the wrong outcome rarer, never impossible. The rule,
-  now in `AGENTS.md` § Universal Rules and each binding's standard, is that a
-  test reads no clock, waits on no duration and starts no thread, goroutine or
-  concurrent task: the clock or the scheduler is injected and driven. The
-  gate, in `run_ci.py`'s fast tier, reads every binding's test files with
-  their comments and literals blanked, against a catalogue of each language's
-  time and thread primitives (positional waits, delayed loop callbacks and an
-  async client built on its default thread runner included), and holds them to
-  `docs/TEST_DETERMINISM.yaml`, a ratchet that is empty: a new site fails. It
-  also reads one file as the path it stands for (`--file PATH --as REL`) and
-  names which paths are tests (`--is-test`), so a hook can hold every test as
-  it is read or written. Every site the tests carried is rewritten:
-  - Go: the two-second deadline (`bounded`), timed close and receive and the
-    gate backend's bound are gone; a caller waiting on the lock is tested by
-    holding the lock, a cancellation in flight by cancelling from inside the
-    call, and the client's sharing by checking that every call reaches the
-    backend holding its lock, where three tests raced goroutines; the CLI's
-    output is captured through a file.
-  - Python: subprocesses run with no timeout, a hang being the run's own limit
-    to report; the guarded-run and scheduler tests block on FIFOs and on the
-    build's own lock where they polled a clock, and a restore handler is shown
-    to wait for its guard by the guard's return code, set before the exit
-    propagates; the Agda-tree lock test lets the holder go inside the waiter's
-    blocking `flock`; clients are isolated by interleaving their calls on one
-    thread; and the async cancellation tests run each call on the event loop
-    in a fixed order through `aletheia.asyncio.testing.TurnExecutor`,
-    cancelling at an exact call, the shield on `close()` included.
-  - C++: the in-flight cancellation fires from inside the backend's call;
-    two real-library clients interleave their calls on one thread; and the
-    scratch-directory peer lets go inside the try's injected lock wait, so a
-    try that slept instead of waiting on the lock would run out of tries.
-
-- **A doc-example harness for the Rust binding, `rust/tests/doc_examples.rs`.**
-  `cargo test` builds every Rust fence of every tracked Markdown file carrying
-  one, `CHANGELOG.md` and the Tutorial aside, as a binary of one scratch crate
-  and runs it against the kernel: a fence declaring `fn main` as it stands, any
-  other inside a synthesised `main` with a client and one frame's `ts`, `id`,
-  `dlc` and `data` predeclared. The five Rust fences of `docs/PITCH.md`,
-  `docs/development/DISTRIBUTION.md` and `docs/reference/INTERFACES.md` were
-  read by nothing. Two structural gates hold the harness's list to the tree both
-  ways, as the Python harness's is held. The pitch's Rust frame loop sent a
-  frame on a stream it never started, which the kernel refuses; it now starts
-  it.
-- **A ratchet on imprecise Python type hints, `tools/check_precise_hints.py`.**
-  Every hint is universally quantified, so `str`, `list[float]` or `dict[str,
-  X]` claims the code handles any string, any list of floats, any key, which it
-  does not; ruff, pylint and basedpyright in strict mode all pass such a hint.
-  The gate reads every tracked Python file outside `.archive/` and refuses `Any`
-  or `object` or a generic given no parameters, a `str`, `int`, `float` or
-  `bytes` anywhere in a hint, three or more nested subscripts, and a type alias
-  or a `NewType` over a shape holding any of these, in an annotation or in the
-  type a `cast` names, unless `docs/PYTHON_IMPRECISE_HINTS.yaml` names it; a row
-  naming more hints than its file holds fails too. The record holds the hints
-  the tree has today and only shrinks. Prose is `aletheia.common_types.Prose`, a
-  `NewType` the gate reads as precise, in a new standard-library-only module the
-  library and `tools/` share with `ExitStatus`; `tools/__init__.py` puts the
-  library's source on the path of the pre-commit hook's bare interpreter. The
-  gate runs in `run_ci` and in its pre-commit tier; `--root DIR --record FILE`
-  holds another tree, every tracked file under DIR, to a record of its own.
 - **`aletheia template <file>.xlsx`, in the Python, C++ and Go CLIs.** It
-  writes the blank workbook the Excel loaders read, the DBC, Checks and
-  When-Then sheets under bold header rows, so the spreadsheet route starts from
-  the command line rather than a Python one-liner. A path that exists is
-  refused and left as it was, and so is a path whose directory does not exist:
-  both exit 2. The cross-CLI contract holds the three to one template, its
-  sheets and header rows being the Python loader's, and checks that no run
-  changes its fixture.
-- **`tools/build_python.sh` builds CPython from source with every Linux
-  module.** It verifies the python.org tarball's Sigstore signature, builds
-  with clang-23 using PGO, LTO, the tail-calling interpreter and BOLT, and links
-  tkinter against the system Tk 9.0 on Xft; CPython's own module check fails
-  the build when a stdlib module a Linux build can have is missing or does not
-  import. uv's prebuilt CPython lacks `os.pidfd_open`, and its Tk has no Xft.
-  The profile runs leave out the tests that overflow the stack of LLVM 23's
-  BOLT-instrumented interpreter, and the finished interpreter runs their files
-  whole. BUILDING.md lists the build dependencies.
-- **A Rust mutation lane, cargo-mutants over the crate's hot path.**
-  `tools/mutation_rust.py` sweeps the response decoder, the DBC model, the
-  domain types and the FFI backend, named by `rust/.cargo/mutants.toml`, reads
-  every mutant's bucket from the tool's `outcomes.json`, keys each survivor on
-  its mutation and source line as the C++ ledger does, and refuses a
-  cargo-mutants other than the version `docs/MUTATION_BENCH.yaml` pins. The
-  sweep mutates a scratch copy of the whole tree and runs cargo-mutants in place
-  within it, because the suite includes the DBC corpus and the parity snapshots
-  from above the crate at compile time and a copy of the crate alone does not
-  build. The configuration names an error value, so every function returning a
-  `Result` gets an `Err` mutant beside its `Ok` ones, and every one of those
-  dies. The lane joins the runner, its diff scope, the static gate, which now
-  refuses a record with no block for a binding the runner sweeps, and the
-  heavy-lanes workflow as a lane of its own. The first sweep left 56 of 305
-  mutants alive; 54 are killed by tests at the boundaries they sit on (the
-  identifier and payload maxima, the rational comparison's cross terms, the
-  extraction buffer's plausibility cap and its null and empty-reason cases, the
-  bus-bit encoding, the error and remote frame acknowledgements, the RTS
-  core-count warning with both specs, the DBC message helpers and the comment
-  target's flag), the buffer cap having moved into a function a test can hand a
-  buffer to. The two the record carries are the `Drop` impls that return memory
-  to the kernel, which no test observes without a leak checker.
-
-- **A coverage lane, each binding's suite under its own coverage tool, held to
-  floors.** `tools/coverage_run.py` runs the Python suite under coverage.py, the
-  Go modules under `go test -cover`, the C++ suites on an instrumented tree
-  (`-DALETHEIA_COVERAGE=ON`, read back with llvm-cov over every executable
-  ctest runs and every shared library of the tree) and both Rust crates under
-  cargo-llvm-cov, reads each tool's report into one shape, archives it under
-  `benchmarks/coverage/` by commit and fails a binding under the floors
-  `docs/COVERAGE_BENCH.yaml` records: 80 percent of lines and 60 percent of the
-  binding's second figure, which the record names per binding because two of
-  the tools count no branches. Go's profile counts blocks, and cargo-llvm-cov on
-  a stable toolchain counts regions; the record says so rather than calling
-  either a branch. `tools/check_coverage_setup.py` holds the record to its
-  shape in the always-on sweep, `tools/run_ci.py --coverage` runs the lane, and
-  the `coverage floors` job of `pr-build-lanes.yml` runs it on every pull
-  request that could move a figure. The first run read every binding over both
-  floors; the record carries the figures.
-
-- **The Go mutation lane holds the lines no test executes to a ledger.**
-  gremlins counts a mutant on such a line as neither killed nor lived, and the
-  record carried the count with nothing reading it. The runner now reads the
-  count and keys each such mutant on its source line as a survivor is, and the
-  Go verdict fails on more of them than recorded or on one the record's
-  `not_covered_ledger` does not name, a row the sweep no longer produces being
-  reported as stale. Twenty of the lines the record counted are reached by new
-  tests, each feeding the input its line refuses or answers: the invalid-UTF-8
-  refusals and a definition's marshal, the refusal message's rational, the
-  library search with its registered path and its working directory read once,
-  a backend and the standalone loaders refusing a library with none of the
-  kernel's symbols and a file that is not one, a kernel answering null
-  everywhere (a stand-in kernel the build makes beside the library), the
-  end-of-stream merge's standard-before-extended order read off a definition
-  carrying one identifier value under both kinds, the batch's
-  satisfactions and the indexed definition constructor. What the ledger names is
-  package-level constants, which no test can execute.
-
-- **The Python coverage configuration measures the FFI loader.** It was omitted
-  as not reachable from tests, where the suite runs it against the built
-  kernel on every run; the omit and its reason are gone, and the one file still
-  held out is the install receipt `shake install` generates, which no checkout
-  carries.
-
-- **The FFI-name gate runs on demand and reads a wrapper it is given.** `cabal
-  run shake -- check-ffi-names` runs the check the Main.hs build rule runs
-  inline, against the wrapper named by `ALETHEIA_FFI_WRAPPER` or, unset, the
-  shim's own.
-
-- **The Actions cache is pruned of what nothing can restore.** The repository's
-  cache stood past its ceiling, and at the ceiling the platform evicts whatever
-  was read longest ago, whichever lane needed it. Most of it was unreadable: an
-  entry a pull request's run saves lives on that request's merge ref, which only
-  that request's runs restore, so a closed request's entries are dead weight, and
-  an entry on `main` under a commit-suffixed key is passed over once a newer one
-  under the same prefix exists, because a prefix match yields the newest.
-  `tools/prune_actions_cache.py` deletes those two kinds and nothing else,
-  keeping a request whose state it could not read and the newest two entries
-  under each prefix on `main`, and prints the plan unless asked to apply it.
-  `.github/workflows/cache-prune.yml` runs it on every closed pull request, for
-  that request's ref, and once a day over the whole store.
-
-- **An address-sanitizer ctest lane, always-on beside the UndefinedBehaviorSanitizer
-  one.** The sanitizer matrix `AGENTS/cpp.md` cat 33(a) asks for had one half: UB
-  was gated on every sweep and the lifetime of a reference was gated nowhere. A
-  value read after the frame holding it has returned changes no result a test
-  asserts on, and libstdc++'s debug mode, which the mutation trees run, checks a
-  container's own preconditions rather than a reference's lifetime, so nothing in
-  the repository read that class. `tools/run_ci.py` now builds the whole ctest
-  battery against `-DALETHEIA_SANITIZER=address` in its own tree and lane and runs
-  every entry, asking for stack-use-after-return detection by name rather than
-  taking the sanitizer runtime's default. The entries that load
-  `libaletheia-ffi.so` run in it: what the lane sees there is this repository's own
-  code, the kernel's allocator being invisible to it, and
-  `docs/architecture/CGO_NOTES.md` states that limit where it states the others.
-  Both sanitizer lanes now read their tree back from its CMake cache between the
-  configure and the build, because a tree whose compiler has changed is dropped
-  and configured afresh, and one that comes back without `ALETHEIA_SANITIZER`
-  builds every target uninstrumented, runs the battery green and reports as a
-  sanitizer lane: measured on `build-asan`, where the uninstrumented tree ran the
-  373 test cases it holds rather than the 359 a sanitizer tree holds, and passed
-  on the very text whose defect the instrumented tree refuses.
-
-- **No index where a range will do, and a ratchet that holds it.** A loop that
-  counts an index states its own bound, and a hand-written bound can be written
-  wrong where a range's cannot; the failure is quiet, because the standard
-  library checks a subscript or a `subspan` only where its container assertions
-  are compiled in and the optimised build leaves them out. `AGENTS/cpp.md`
-  cat 27 now names the views the common loop shapes take and what a surviving index
-  must look like, and `tools/check_cpp_index_loops.py` refuses a counting loop
-  that `docs/CPP_INDEX_LOOPS.yaml` does not already name, as well as a row
-  naming a loop the tree no longer holds, since such a row is standing
-  permission to reintroduce it. `clang-tidy`'s `modernize-loop-convert` cannot
-  serve here: it rewrites a loop only where the index does nothing but
-  subscript one container, which is the case where no bound is hand-written.
+  writes the blank workbook the Excel loaders read (DBC, Checks and When-Then
+  sheets); an existing path or a missing directory is refused with exit 2.
 
 ### Changed
 
 - **BREAKING (Go): the Go binding needs Go 1.26 or later.** The core module,
-  the Excel module and the command line declare `go 1.26.0`, where they declared
-  `go 1.24.0`, and carry no `toolchain` line. The Excel module and the command
-  line now require excelize 2.11.1, which declares `go 1.26.0`, as do the
-  `golang.org/x/crypto`, `golang.org/x/net` and `golang.org/x/text` releases it
-  requires, so neither module can take them on an older floor; the core module
-  moves with them, so the binding has one floor.
+  the Excel module and the command line declare `go 1.26.0` and carry no
+  `toolchain` line; the last two now require excelize 2.11.1.
 
-- **BREAKING (C ABI 4, every binding): a rational's numerator and denominator,
-  a multiplex value and a value-description key reach 2^128 - 1 in magnitude,
-  the sign held apart.** Go `Uint128`, C++ `unsigned __int128` and Rust `u128`
-  carry them and `aletheia.h` requires C23; every reply reader words a refusal
-  `reply <path>: expected <kind>, got <what came>`, and the two `enrichment.*`
-  log events are retired.
+- **BREAKING (C ABI 4, every binding): value-description keys, multiplex
+  values and rationals reach magnitude 2^128 - 1; `aletheia.h` needs C23.** C++
+  `SOVERSION 4`; unknown words are refused; integer and error types change.
 
-  - **BREAKING (Rust): a validation issue's severity and code and an error
-    reply's code outside their sets are refused at their place.** A severity
-    other than `error` or `warning` is refused as `reply issues/severity:
-    expected "error" or "warning", got "fatal"`, where it read as `Warning`;
-    an issue code outside `IssueCode` as `expected an issue code`, where it
-    read as `IssueCode::Unknown`; an error reply's code outside the
-    `error_codes` of `docs/WIRE_CODES.yaml` as `expected an error code`, where
-    `Error::Core` carried it. `IssueCode::Unknown(String)` is removed and
-    `IssueCode::from_wire` returns `Option<IssueCode>`.
-
-  - **BREAKING (Rust): a DBC's byte order, signal presence, comment target
-    kind, attribute kind, attribute definition scope, attribute type kind,
-    attribute value kind and attribute target kind outside their words are
-    refused at their place.**
-    A byte order other than `little_endian` or `big_endian` is refused as
-    `reply dbc/messages/signals/byteOrder: expected "little_endian" or
-    "big_endian", got "bogus_word"`, where it read as `ByteOrder::BigEndian`;
-    a presence other than `always` or `multiplexed` as `expected "always" or
-    "multiplexed"`, where it read as `Presence::Multiplexed`; a comment
-    target's kind outside `network`, `node`, `message`, `signal` and `envVar`,
-    where it read as `CommentTarget::EnvVar`; an attribute's kind outside
-    `definition`, `default` and `assignment`, where it read as
-    `Attribute::Assignment`; an attribute definition's scope outside
-    `network`, `node`, `message`, `signal`, `envVar`, `nodeMsg` and
-    `nodeSig`, where it read as `AttrScope::NodeSig`; an attribute type's kind
-    outside `int`, `float`, `string`, `enum` and `hex`, where it read as
-    `AttrType::Hex`; an attribute value's kind outside `int`, `float`,
-    `string`, `enum` and `hex`, where it read as `AttrValue::Hex`, and an
-    attribute target's kind outside `network`, `node`, `message`, `signal`,
-    `envVar`, `nodeMsg` and `nodeSig`, where it read as `AttrTarget::NodeSig`.
-
-  - **BREAKING (Rust): every error code the crate hands out is an
-    `ErrorCode`.** The public `ErrorCode` enum has one variant per error code
-    of `docs/WIRE_CODES.yaml`, in its order; `ErrorCode::from_wire` reads the
-    wire word into `Option<ErrorCode>` and `as_str` writes it. The `code` of
-    `Error::Core`, `Error::ValidationFailed`, `Error::TextRoundtripFailed` and
-    `BoundRefusal` is an `ErrorCode` where it was a `String`, and
-    `Error::Validation`'s an `Option<ErrorCode>` where it was an
-    `Option<String>`. `IssueCode` gains `Copy`; its `as_str`, as
-    `ErrorCode`'s and `IssueSeverity`'s, takes `self` by value and returns
-    `&'static str`.
-
-  - **BREAKING (Rust): a null reply from a C entry is
-    `Error::NullResponse { entry }`.** Each text endpoint of the library's
-    backend refuses a null string as `<entry> returned null`, such as
-    `aletheia_process returned null`, where the unit `Error::NullResponse`
-    read `core returned a null response`; a null render reads
-    `aletheia_format_rational returned null` as `Error::NullResponse`, where
-    it was an `Error::Protocol` reading `aletheia_format_rational returned a
-    null pointer`.
-
-  - **BREAKING (Rust): `ALETHEIA_RTS_OPTS` is read as bytes and split on the
-    six ASCII whitespace bytes, as the C++, Go and Python bindings read and
-    split it.** Space, TAB, LF, CR, VT and FF separate its flags and every
-    other byte stays in its flag, where `split_whitespace` also cut a flag at
-    a Unicode space such as U+00A0 (no-break space) or U+0085 (next line); a
-    value that is not UTF-8 keeps its bytes inside their flags, where it was
-    read as empty and none of its flags reached the runtime.
-
-  - **BREAKING (Go): a validation issue's severity and code and an error
-    reply's code outside their sets are refused at their place.** A severity
-    other than `error` or `warning` is refused as `reply issues/severity:
-    expected "error" or "warning", got "fatal"`, where it read as
-    `SeverityWarning`; an issue code outside the `IssueCode` constants as
-    `expected an issue code`, and an error reply's code outside the
-    `error_codes` of `docs/WIRE_CODES.yaml` as `expected an error code`, where
-    both were carried as written. `IssueUnknown` is removed.
-
-  - **BREAKING (Go): a property result's type and status and a stream
-    warning's kind outside their sets are refused at their place.** A result's
-    type other than `property` is refused as `reply results/type: expected
-    "property", got "verdict"`, where a frame's batch read it as `property`
-    and the end of a stream did not read it; a status other than `fails`,
-    `holds` or `unresolved` as `reply results/status: expected "fails",
-    "holds" or "unresolved", got "bogus"`, where it read as `Unresolved`; a
-    warning's kind other than `uncached_atom` as `reply warnings/kind:
-    expected "uncached_atom", got "stale_atom"`, where it was carried as
-    written.
-
-  - **BREAKING (Go): a DBC's byte order, signal presence, comment target kind,
-    attribute kind, attribute definition scope, attribute type kind, attribute
-    value kind and attribute target kind outside their words are refused at
-    their place.** A byte order other than
-    `little_endian` or `big_endian` is refused as
-    `reply dbc/messages/signals/byteOrder: expected "little_endian" or
-    "big_endian", got "bogus_word"`, where it read as `BigEndian`; a presence
-    other than `always` or `multiplexed` as `expected "always" or
-    "multiplexed"`, where it read as multiplexed; a comment target's kind
-    outside `network`, `node`, `message`, `signal` and `envVar`, where it read
-    as an environment variable, an attribute's kind outside `definition`,
-    `default` and `assignment`, where it read as an assignment, an attribute
-    definition's scope outside `network`, `node`, `message`, `signal`,
-    `envVar`, `nodeMsg` and `nodeSig`, where it read as `DBCAttrScopeNodeSig`,
-    an attribute type's kind outside `int`, `float`, `string`, `enum` and
-    `hex`, where it read as a hex type, an attribute value's kind outside
-    `int`, `float`, `string`, `enum` and `hex`, where it read as a hex value,
-    and an attribute assignment target's kind outside `network`, `node`,
-    `message`, `signal`, `envVar`, `nodeMsg` and `nodeSig`, where it read as a
-    node signal target, alike.
-
-  - **BREAKING (Go): `Error.Code` is an `ErrorCode`.** `type ErrorCode string`
-    types every `Code*` constant, and the `Code` of `Error`,
-    `InputBoundExceededError`, `ValidationFailedError` and
-    `TextRoundTripFailedError` is an `ErrorCode` where it was a `string`.
-
-  - **BREAKING (Go): `ALETHEIA_RTS_OPTS` is split on the six ASCII whitespace
-    bytes, as the C++ and Python bindings split it.** Space, TAB, LF, CR, VT
-    and FF separate its flags and every other byte stays in its flag, where
-    `strings.Fields` also cut a flag at a Unicode space such as U+00A0
-    (no-break space) or U+0085 (next line).
-
-  - **BREAKING (C++): a validation issue's severity and code and an error
-    reply's code outside their sets are refused at their place.** A severity
-    other than `error` or `warning` is refused as `reply issues/severity:
-    expected "error" or "warning", got "fatal"`, where it read as
-    `IssueSeverity::Warning`; an issue code outside `IssueCode` as `expected
-    an issue code`, where it read as `IssueCode::Unknown` with the word kept
-    in `code_raw`; an error reply's code outside the `error_codes` of
-    `docs/WIRE_CODES.yaml` as `expected an error code`, where it read as
-    `ErrorCode::Unknown`. `IssueCode::Unknown`, `ErrorCode::Unknown` and
-    `ValidationIssue::code_raw` are removed, which moves `ValidationIssue`'s
-    layout under `libaletheia-cpp`'s `SOVERSION 4`; `AletheiaError::code()`
-    and `error_code_from_string` return `std::optional<ErrorCode>`, empty for
-    a refusal the binding makes itself and for a word no code names.
-
-  - **BREAKING (C++): a property result's type and status and a stream
-    warning's kind outside their sets are refused at their place.** A result's
-    type other than `property` is refused as `reply results/type: expected
-    "property", got "verdict"`, where a frame's batch read it as `property`
-    and the end of a stream did not read it; a status other than `fails`,
-    `holds` or `unresolved` as `reply results/status: expected "fails",
-    "holds" or "unresolved", got "bogus"`, where it read as
-    `Verdict::Unresolved`; a warning's kind other than `uncached_atom` as
-    `reply warnings/kind: expected "uncached_atom", got "stale_atom"`, where
-    it read as `WarningKind::UncachedAtom`.
-
-  - **BREAKING (C++): a DBC's byte order, signal presence, comment target
-    kind, attribute kind, attribute definition scope, attribute type kind,
-    attribute value kind and attribute target kind outside their words are
-    refused at their place.** A byte order other than `little_endian` or
-    `big_endian` is refused as `reply
-    dbc/messages/signals/byteOrder: expected "little_endian" or "big_endian",
-    got "bogus_word"`, where it read as `ByteOrder::BigEndian`; a presence
-    other than `always` or `multiplexed` as `expected "always" or
-    "multiplexed"`, where it read as `Multiplexed`; a comment target kind
-    other than `network`, `node`, `message`, `signal` or `envVar` as `reply
-    dbc/comments/target/kind: expected "network", "node", "message", "signal"
-    or "envVar"`, where it read as `DbcCommentTargetEnvVar`; an attribute kind
-    other than `definition`, `default` or `assignment` as `reply
-    dbc/attributes/kind: expected "definition", "default" or "assignment"`,
-    where it read as `DbcAttrAssign`; an attribute definition's scope other
-    than `network`, `node`, `message`, `signal`, `envVar`, `nodeMsg` or
-    `nodeSig` as `reply dbc/attributes/scope: expected "network", "node",
-    "message", "signal", "envVar", "nodeMsg" or "nodeSig"`, where it read as
-    `DbcAttrScope::NodeSig`; an attribute type kind other than `int`, `float`,
-    `string`, `enum` or `hex` as `reply dbc/attributes/attrType/kind: expected
-    "int", "float", "string", "enum" or "hex"`, where it read as
-    `DbcAttrTypeHex`; an attribute value kind other than `int`, `float`,
-    `string`, `enum` or `hex` as `reply dbc/attributes/value/kind: expected
-    "int", "float", "string", "enum" or "hex"`, where it read as
-    `DbcAttrValueHex`; an attribute target kind other than `network`, `node`,
-    `message`, `signal`, `envVar`, `nodeMsg` or `nodeSig` as `reply
-    dbc/attributes/target/kind: expected "network", "node", "message",
-    "signal", "envVar", "nodeMsg" or "nodeSig"`, where it read as
-    `DbcAttrTargetNodeSig`.
-
-  - **BREAKING (C++): a null reply from a C entry is refused with kind
-    `Ffi`.** Each text endpoint of the library's backend refuses a null
-    string as `<entry> returned null`, such as `aletheia_process returned
-    null`, with kind `Ffi`, where it was kind `Protocol`; a null render reads
-    `aletheia_format_rational returned null`, where it read
-    `aletheia_format_rational returned a null pointer`.
-
-  - **BREAKING (C++): `issue_code_label` is removed, and
-    `to_string(issue.code)` renders an issue's code.** The function returned
-    `code_raw` for a code outside `IssueCode`; with such a code refused at its
-    place it returned `to_string(issue.code)`, which the CLI's `validate`
-    report now calls, its output unchanged. The removal is a break of the same
-    `SOVERSION 4`.
-
-  - **BREAKING (Python): a validation issue's severity and code outside their
-    sets are refused at their place.** A severity other than `error` or
-    `warning` is refused as `reply issues/severity: expected "error" or
-    "warning", got "fatal"`, and an issue code outside `IssueCode` as `expected
-    an issue code`, where both were returned as written; a `ValidationIssue`
-    holds its severity and code as the `IssueSeverity` and `IssueCode` members
-    their words name, where it held the reply's strings.
-
-  - **BREAKING (Python): a DBC's byte order, signal presence, comment target
-    kind, attribute kind, attribute definition scope, attribute type kind,
-    attribute value kind and attribute target kind outside their words are
-    refused at their place.** A byte order other than `little_endian` or
-    `big_endian` is refused as `reply dbc/messages/signals/byteOrder: expected
-    "little_endian" or "big_endian", got "bogus_word"`, where it was returned as
-    written; a presence other than `always` or `multiplexed` as `expected
-    "always" or "multiplexed"`, where a signal carrying a multiplexor kept it as
-    written and one carrying none was refused at
-    `dbc/messages/signals/multiplexor`; a comment target kind other than
-    `network`, `node`, `message`, `signal` or `envVar` as `reply
-    dbc/comments/target/kind: expected "network", "node", "message", "signal" or
-    "envVar"`, where a target carrying an `envVar` read as an `envVar` target
-    and one carrying none was refused at `dbc/comments/target/envVar`; an
-    attribute kind other than `definition`, `default` or `assignment` as `reply
-    dbc/attributes/kind: expected "definition", "default" or "assignment"`,
-    where an attribute carrying a `target` and a `value` read as an assignment
-    and one missing either was refused at `dbc/attributes/target` or
-    `dbc/attributes/value`; an attribute definition's scope other than
-    `network`, `node`, `message`, `signal`, `envVar`, `nodeMsg` or `nodeSig` as
-    `reply dbc/attributes/scope: expected "network", "node", "message",
-    "signal", "envVar", "nodeMsg" or "nodeSig"`, where it was returned as
-    written; an attribute type kind other than `int`, `float`, `string`, `enum`
-    or `hex` as `reply dbc/attributes/attrType/kind: expected "int", "float",
-    "string", "enum" or "hex"`, where a type carrying a `min` and a `max` read
-    as a `hex` type and one carrying neither was refused at
-    `dbc/attributes/attrType/min`; an attribute value kind other than `int`,
-    `float`, `string`, `enum` or `hex` as `reply dbc/attributes/value/kind:
-    expected "int", "float", "string", "enum" or "hex"`, where a value carrying
-    a whole number read as a `hex` value and one carrying any other value or
-    none was refused at `dbc/attributes/value/value`; an attribute target kind
-    other than `network`, `node`, `message`, `signal`, `envVar`, `nodeMsg` or
-    `nodeSig` as `reply dbc/attributes/target/kind: expected "network", "node",
-    "message", "signal", "envVar", "nodeMsg" or "nodeSig"`, where a target
-    carrying an `id`, `extended`, `node` and `signal` read as a `nodeSig` target
-    and one missing any of them was refused at the first it missed, in that
-    order, under `dbc/attributes/target`.
-
-  - **BREAKING (Python): every error code the package hands out is an
-    `ErrorCode`.** The `code` of `AletheiaError` and of every error deriving
-    from it, and the `code` its constructors take, is an `ErrorCode | None`
-    where it was a `str | None`, and an `ErrorResponse`'s `code` an
-    `ErrorCode` where it was a `str`. A member compares equal to its word and
-    serialises as it.
-
-  - **BREAKING (Python): a null reply from a C entry is an `FFIError`.** Each
-    text endpoint of `FFIBackend` refuses a null string as `<entry> returned
-    null`, such as `aletheia_process returned null`, with `FFIError`, where it
-    raised `ProtocolError` reading `FFI returned null pointer`; a null render
-    reads `aletheia_format_rational returned null`, where it read
-    `aletheia_format_rational returned a null pointer`.
-
-  - **BREAKING (Python): `FFIBackend.init`'s `FFIError` reads `aletheia_init
-    returned null`,** the text the C++, Go and Rust bindings give, where it
-    named the call `aletheia_init()` and added that the FFI initialization
-    failed.
-
-  - **BREAKING (Python): a non-ASCII `ALETHEIA_RTS_OPTS` flag meets the
-    runtime's own refusal.** The variable's bytes, split on ASCII whitespace, reach the GHC
-    runtime as the environment holds them, so a flag such as `-é` is refused
-    as the runtime refuses any flag it does not know, `unknown RTS option: -é`
-    on stderr and an exit status of 1, where Python raised
-    `UnicodeEncodeError` before starting it.
-
-  - **BREAKING (Go): a null render reads `aletheia_format_rational returned
-    null`,** the text every binding gives a C entry's null reply, where it read
-    `aletheia_format_rational returned a null pointer`.
-
-- **BREAKING: every error the C++ binding answers is a `Result<T>`, only
-  `std::bad_alloc` is thrown, and `AletheiaClient::open` opens a client in one
-  call; `libaletheia-cpp` is installed at `SOVERSION 3`.**
-  `AletheiaClient::open(ClientOptions{...})` opens the library named by
-  `.library`, or the one `find_ffi_library()` finds, with `.rts_cores`,
-  `.logger` and `.default_checks` each optional, and refuses with kind `Ffi`
-  when none is found; `AletheiaClient::create(backend, logger,
-  default_checks)` builds a client over a backend of the caller's, refusing
-  one that hands out no state (kind `Ffi`); both return
-  `Result<AletheiaClient>` and the constructor is private. `start_runtime` and
-  `start_runtime_from_env` return `Result<std::optional<std::pair<int, int>>>`
-  and the four `make_ffi_backend` overloads `Result<std::unique_ptr<IBackend>>`,
-  each refusal of the kind and text it threw. `IBackend::init()` returns
-  `Result<BackendState>` and the eight text endpoints `Result<std::string>`: a
-  null answer from the kernel (kind `Protocol`), a payload whose length is not
-  its DLC's (kind `Validation`) and the test double's empty queue (kind
-  `State`) are returned. A command holding a string that is not UTF-8, or a
-  formula nested past `max_nesting_depth`, is refused by every command,
-  `add_checks` included, with kind `Validation` and the encoder's text, and
-  `to_canonical_json` returns `Result<std::string>` with the same refusal. The
-  JSON decoders and the Excel loaders, which answer what they catch as an
-  error, let `std::bad_alloc` through. `AletheiaException` moves to
-  `aletheia::detail`, nothing public throwing it. The two-argument `Rational`
-  constructor is `consteval`: a literal outside int64 or with a denominator
-  that is not positive fails the build, a pair known at run time goes through
-  `Rational::make`, and `Rational::integer(n)` builds a whole number of any
-  integral type within int64 and cannot fail. `Rational::from_decimal`
-  returns `Result<Rational>`, `format_formula` `Result<std::string>`,
-  `build_diagnostic` `Result<PropertyDiagnostic>` and
-  `CheckResult::condition_desc()` `Result<std::string>`, where each threw
-  `AletheiaException`: the runtime down (kind `Ffi`), the kernel's refusal of a
-  literal (kind `Validation` or `InputBoundExceeded`, its code and fields
-  kept), a wire fault (kind `Protocol`) and a null string from the renderer
-  (kind `Ffi`) are each the returned error, as every other C++ refusal is. A
-  check's description is held as its text and its thresholds and rendered on
-  every read, as in Go, Rust and Python, where the first read rendered it and
-  kept the text. `Rational::make`, `StandardId::create`, `ExtendedId::create`,
-  `Dlc::create`, `bytes_to_dlc` and `SignalInjection::create` return
-  `Result<T>`, their refusal an `AletheiaError` of kind `Validation` with no
-  code, where it was a `std::string`; the four `constexpr` factories still
-  answer in a constant expression. `CheckSignal::stays_between` returns
-  `Result<CheckResult>` and refuses a range whose lo is above its hi at once;
-  `SettlesBuilder::within` and `ThenCondition::within` return
-  `Result<CheckResult>` and refuse such a range of `settles_between` or of the
-  then-signal's `stays_between` first, as Rust's and Go's do, then a negative
-  bound or one whose microseconds overflow int64. Each range refusal names
-  both bounds (`stays_between: lo (5) must be <= hi (1)`, and
-  `then stays_between: ...` for the then-signal's); where these refused, they
-  threw `std::invalid_argument`, the range refusals naming no bound, and the
-  YAML loader let those through. The constructors of `CheckResult`,
-  `CheckSignalPredicate` and `ThenCondition` that took a description closure
-  are gone, the builders making all three, and their sizes move (`CheckResult`
-  240 to 200 bytes, `CheckSignalPredicate` 144 to 136, `ThenCondition` 208 to
-  240). `IBackend::close` is `noexcept`, so a backend's close cannot fail and
-  the handle no longer swallows what one throws. `create_excel_template`
-  answers a path it cannot look at with the write's refusal, where it threw
-  `std::filesystem::filesystem_error`. `find_ffi_library()` returns
-  `Result<std::filesystem::path>`: an `ALETHEIA_LIB` naming no file is refused
-  (kind `Ffi`, `ALETHEIA_LIB=<path> does not exist`, as Python refuses it),
-  where the search went on to another library, and so is no library found,
-  with the text `AletheiaClient::open` gave, where it was an empty path; a
-  build directory the search cannot look at is passed over, where it threw
-  `std::filesystem::filesystem_error`. The benchmark and the stability harness
-  print the search's refusal. Properties the kernel accepted whose diagnostic
-  cannot be rendered leave `set_properties` with no diagnostic and return the
-  renderer's error, as the Python client does. `ErrorCode::Unknown` is
-  documented as the code of a refusal the binding makes itself, which Python,
-  Go and Rust report with no code.
+- **BREAKING: every error the C++ binding answers is a `Result<T>`; only
+  `std::bad_alloc` is thrown.** A client comes from `AletheiaClient::open` or
+  `::create`; an `ALETHEIA_LIB` naming no file is refused.
 
 - **BREAKING: every binding starts the kernel's runtime on its own, with
-  `start_runtime`, so checks holding a decimal load before a client and
-  default checks hold them; a client naming no core count asks for the count
-  running, and a count outside 1 to the CPUs the process may use is refused in
-  all four bindings.** The kernel reads every number a check carries, and its
-  GHC runtime starts once per process, which only a backend did: checks loaded
-  from YAML or Excel, or built with a decimal threshold, were refused before
-  the first client, though a client's constructor is where default checks are
-  given (Python `AletheiaClient(default_checks=...)`, Go `WithDefaultChecks`,
-  C++ `AletheiaClient`). `aletheia.start_runtime(cores, *, lib_path=None)`
-  (Python), `StartRuntime(libPath, cores, logger)` and
-  `StartRuntimeFromEnv(cores, logger)` (Go), `start_runtime(lib, cores)` and
-  `start_runtime_from_env(cores)` (C++, answering the `{active, requested}`
-  pair of a mismatch) and `start_runtime(cores, logger)` (Rust) start it, and
-  every backend's start is the same one. Rust's `ClientBuilder` gains
-  `default_checks`, prepended at `add_checks` as in the other three. A client
-  or backend naming no count (Python's `rts_cores`, now `None` by default, Go
-  without `WithRTSCores`, C++'s new count-less `make_ffi_backend(path)` and
-  `make_ffi_backend_from_env()`, Rust without `rts_cores`) asks for the count
-  running, one when nothing runs, where it asked for one and was warned after
-  a start on another count; the counted C++ forms lose their default argument,
-  their symbols unchanged. A count is held to 1 through the CPUs the process
-  may use, as the runtime's `getNumberOfProcessors` counts them: Python
-  accepted 0 and negative counts, and the four bindings now refuse alike with
-  `core count 0 is outside 1 to <n>, the CPUs this process may use`, where Go
-  and Rust named the C int range and C++ read `rts_cores must be >= 1`. A
-  number read before any start names the remedy, `GHC runtime not initialized:
-  call aletheia.start_runtime or open a client before parsing decimals` in
-  each binding's spelling; Rust's `Error::RtsNotInitialized` reads `GHC
-  runtime not initialized: call aletheia::start_runtime or build a Client
-  before rendering or parsing a number`. In Go and C++ the renderer and the
-  decimal parser call the library the runtime started on, through the entries
-  the start recorded: each had opened a library of its own, so a read before
-  the start that found none kept that refusal after it, and one following
-  `ALETHEIA_LIB` called a library other than the backend's. Rust's
-  `rts.cores_mismatch` record carries `active_cores` and
-  `requested_cores` counts as the other three do, where it carried
-  `requested` and `active` strings. C++'s `make_ffi_backend_from_env` refusal reads `ALETHEIA_LIB is
-  not set: set it to the path of libaletheia-ffi.so, or call
-  make_ffi_backend(path)`. The feature matrix gains `runtime_start` and
-  `default_checks`. The documentation examples that read a number before any
-  client, 22 of them, start the runtime first, and each binding's
-  documentation harness runs each example with the runtime as a reader's
-  program finds it, down until the example starts it or first evaluates the
-  harness's client or backend, where each harness had started it before every
-  example; Python's loader fakes read a number as a reader's file would.
+  `start_runtime`.** After it, decimal checks load before a client. An unnamed
+  core count is the running one; one outside 1 to the usable CPUs is refused.
 
-- **BREAKING: the C++ client's object layout moves, and `libaletheia-cpp` is
-  installed at `SOVERSION 2`; `cache.full` is logged once per fill in C++, Go
-  and Python, and the Python binding prints nothing until the host configures
-  its logger.** `AletheiaClient` holds its extraction cache and a latch in one
-  struct (320 bytes, 312 before), so a program linked against the installed
-  shared library is rebuilt for this release. The layout is now a kept record:
-  `docs/CPP_LAYOUT.yaml` holds the size and alignment of every public type and
-  the library's `SOVERSION`, the C++ layout test holds the figures to the
-  compiler, `tools/check_cpp_layout.py` holds the roster to the headers, and a
-  pull request changing the record is refused without the breaking mark. A
-  `SOVERSION` raised with no row moved passes too, for a break the record
-  cannot show (a virtual function added); the version never falls. The
-  `cache.full` warning fired on every extraction the full cache refused
-  (measured: 2976 lines on stderr from `python -m benchmarks.violations
-  --frames 1000 --runs 2`); it is now logged once, on the first refusal, and
-  again only once a new stream or new properties empty the cache. The
-  `aletheia` logger had no handler, so a host that configured no logging saw
-  every WARNING-level record on stderr through Python's last-resort handler,
-  where the C++, Go and Rust clients are silent until a logger is passed to
-  them; a `NullHandler` on the package logger now keeps every record off
-  stderr until the host attaches a handler, the failed-frame warnings
-  (`enrichment.extraction_failed`, `extraction.process_failed`,
-  `extraction.parse_failed`) included, and the Python API guide and
-  INTERFACES.md say how to turn them on. The three command lines attach a
-  WARNING-level logger writing to stderr, so a warning raised during a run is
-  seen alike from `python -m aletheia`, the Go `aletheia` and `aletheia-cli`.
-  A boolean log field reads `true` or `false` in Python, as the Go and C++
-  clients write it, where it read `True` or `False`.
+- **BREAKING: time windows are whole microseconds, in every binding.** An
+  existing Python call keeps running with a window 1000 times shorter. Go, Rust
+  and C++ `within` take a `TimeBound`.
 
-- **BREAKING: the kernel reads a command as RFC 8259 JSON text and writes
-  every reply as such text, both proven.** The parser refuses, with
-  `dispatch_invalid_json` at the line and column of the first character it
-  cannot read, text after the value, whitespace other than space, tab, line
-  feed and carriage return, an integer part with a leading zero, a raw
-  character below U+0020 inside a string, and a `\u` escape naming a lone
-  surrogate half; before, it accepted each of them but the last, and refused
-  every `\u` escape. A `\u` escape is read as the character it names, a
-  surrogate pair as one character. A reply escapes every character below
-  U+0020, `\b \f \n \r \t` in their short form and the rest as `\u00XX`, and
-  escapes keys as it escapes values; before, a reply wrote a key as it was
-  and a backspace, form feed or other control character raw, so a strict
-  reader refused a reply echoing one. `parseJSON-sound`
-  (`src/Aletheia/Protocol/JSON/Properties/Sound.agda`) proves every text the
-  parser accepts is in RFC 8259's grammar, written as an Agda type in
-  `src/Aletheia/Protocol/JSON/RFC8259.agda`; `parseJSON-formatJSONChars`
-  (`src/Aletheia/Protocol/JSON/Properties/Roundtrip.agda`) proves the parser
-  reads back every value the formatter writes; `reply-is-JSONText` and
-  `formatResponse-depth` prove every reply is in the grammar and nests at
-  most 8 deep.
+- **BREAKING: check files state times in microseconds.** YAML's `within_ms` is
+  `within_us`, and the Excel columns `Time (ms)` and `Within (ms)` are
+  `Time (µs)` and `Within (µs)`; a check that needs an old name is refused.
 
-- **BREAKING: a DBC is held to the DBC character set on both load routes,
-  every name is a DBC identifier decided as it is read, a `setProperties`
-  signal must be a signal of the loaded DBC, and a `.dbc` file is read byte
-  for byte.** Where a DBC's bounds are decided, every string (version, unit,
-  comment, value label, attribute enum label or string value) holds printable
-  ASCII but `"` and `\`, plus TAB, LF and CR; a DBC text is scanned before it
-  is parsed and the first character outside printable ASCII, TAB, LF and CR
-  is refused at its line and column (`dbc_invalid_character`, with `field`
-  and `index` where the bounds are decided, a parsed DBC or a `"` or `\` in
-  a text's string, `line` and `column` where the text's scan finds it). A name is
-  built only by the one identifier decision, as its characters are read: an
-  ASCII C identifier (`[A-Za-z_][A-Za-z0-9_]*`) of at most 128 characters,
-  the 129th character being the refusal, and not a DBC keyword; attribute
-  names, written between quotes, are identifiers too. The refusal is typed
-  on both routes (`input_bound_exceeded` with `identifier_length`, the new
-  `dbc_keyword_name` carrying `keyword`, `parse_invalid_identifier`,
-  `dbc_invalid_character`), located by `field` in a parsed DBC and by `line`
-  and `column` where the name starts in a DBC text (a character refusal at
-  the character's own position), which the text parser's failure now
-  carries beside its position; a word that starts with a character no
-  identifier starts with is refused whole on the text route too, and
-  `parse_invalid_identifier` names its place on every route. Before, every
-  character loaded in a string (a text could not carry `"`), a keyword and a
-  non-ASCII name loaded as names, an attribute name was any string, and only
-  the JSON route refused a 129-character name with a typed error, a DBC text
-  failing untyped at its 129th character. A `setProperties` signal is decided as
-  it is read, by the identifier decision a parsed DBC's names go through
-  (each refusal spelled as that route spells it, in `field` `signal`) and
-  then the loaded DBC's signals: a name no signal of the DBC carries is
-  refused with the new code `handler_unknown_signal`; before, it was
-  accepted and the property ended with an `uncached_atom` warning. Each
-  binding's `.dbc` file reader (Python `dbc_to_json` and the CLI, the Go and
-  C++ CLIs) maps every byte to the character of the same number, so a byte
-  above 0x7E is refused by the kernel with its code and position whatever
-  the file's encoding, and a CR byte reaches the kernel as it is; before,
-  Python raised `UnicodeDecodeError` on a cp1252 file and translated CR LF.
+- **BREAKING: building a predicate or check needs the kernel's runtime up.**
+  A program that builds one before opening a client calls `start_runtime` first;
+  an ordering, tolerance or time bound the kernel refuses is refused there.
 
-- **BREAKING: the kernel refuses an extracted value past the wire's bound on
-  both extraction paths, and a frame entry refuses a timestamp past the 64-bit
-  range.** The kernel's batch categoriser refuses an extracted signal value
-  whose reduced numerator or denominator is above 9223372036854775807 on the
-  JSON extraction path (`aletheia_extract_signals`) as it did on the binary
-  path, the signal landing in `errors` with
-  `extraction_value_exceeds_wire_range`; before, the JSON path wrote the exact
-  value and the FFI shim's encoder rerouted it on the binary path alone. The
-  bound is symmetric in magnitude, so numerator -9223372036854775808, accepted
-  before on both paths, is refused. The binary frame entries
-  (`aletheia_send_frame`, `aletheia_send_error`, `aletheia_send_remote`)
-  refuse a timestamp above 18446744073709551615 with the new wire code
-  `parse_timestamp_past_wire` before reading any other field, a refusal the
-  C ABI's `uint64_t` timestamp cannot reach. Every number the kernel writes in
-  a reply is proven to have a numerator in [-2^63, 2^64 - 1] and a denominator
-  at most 2^64 - 1, the range every binding's reader decodes (the theorem
-  `formatResponse-readable` in
-  `src/Aletheia/Protocol/ResponseFormat/Properties.agda`).
+- **BREAKING (Go, Rust and C++): predicate, temporal and check builders return
+  an error.** A comparison, `always_within`, `eventually_within` or a check
+  builder answers one where it could not fail before.
 
-- **BREAKING (C ABI 3): the kernel reports the bytes its runtime has
-  allocated.** The new entry `aletheia_allocated_bytes` runs a collection and
-  returns the bytes the runtime has allocated since it started, so the
-  difference of two calls is what ran between them allocated;
-  `ALETHEIA_ABI_VERSION` is 3, and each binding refuses a library at another
-  version. Each binding exposes the count as one function, the count being the
-  whole process's: Python `aletheia.allocated_bytes()`, Go
-  `aletheia.AllocatedBytes()`, C++ `aletheia::allocated_bytes()` and Rust
-  `aletheia::allocated_bytes()`, each answering no count until a backend has
-  started the runtime. The `load scaling` check reads it around each load.
+- **BREAKING: two DBC faults are errors that refuse a load.** `min_exceeds_max`
+  was a warning; `value_description_key_out_of_range` is new, for a value
+  description key outside its signal's bits.
 
-- **A decimal entered through `aletheia_parse_decimal` is decided in the
-  kernel and refused as every kernel refusal is, and the wire codes
-  `dbc_text_parse_failure` and `dbc_text_trailing_input` are renamed
-  `text_parse_failure` and `text_trailing_input` (BREAKING).** The kernel's
-  own decimal grammar parses the literal and holds its numerator and
-  denominator to the rational component bound, 9223372036854775807; a decimal
-  whose reduced numerator is -9223372036854775808, `-9223372036854775808` and
-  `-1844674407370955161.6` among them, was accepted and is now refused with
-  `observed` 9223372036854775808 against `limit` 9223372036854775807, while
-  `-9223372036854775807` is accepted. The refusal is the kernel's error
-  envelope: the codes `decimal_parse_failed` and `decimal_overflow` are gone,
-  with the echoed `input` field; a malformed literal answers
-  `text_parse_failure` or `text_trailing_input` with `line` and `column`
-  (`text_trailing_input` adds `statement_line` and `statement_column`), a
-  component past the bound answers `input_bound_exceeded` with `field`
-  `decimal`, `bound_kind` `rational_component_magnitude`, `observed` and
-  `limit`, and a text the shim refuses before the kernel sees it (a NULL
-  pointer, a size past what the library can index, bytes that are not UTF-8,
-  an interior NUL) answers `ffi_validation_error`. The renamed codes are the
-  ones a `.dbc` text that
-  fails to parse answers too (`parse_dbc_text`), and the parse failure's
-  message drops its `DBC text ` prefix, reading `parse failed at line L,
-  column C`; the bindings' constants follow: Python
-  `ErrorCode.DBC_TEXT_PARSE_FAILURE` / `DBC_TEXT_TRAILING_INPUT` are
-  `TEXT_PARSE_FAILURE` / `TEXT_TRAILING_INPUT`, Go `CodeDBCTextParseFailure`
-  / `CodeDBCTextTrailingInput` are `CodeTextParseFailure` /
-  `CodeTextTrailingInput`, C++ `ErrorCode::DBCTextParseFailure` /
-  `DBCTextTrailingInput` are `TextParseFailure` / `TextTrailingInput`;
-  `dbc_text_attribute_refinement_failed` keeps its name. A refused literal
-  keeps the kind of a caller's own mistake and carries the kernel's code:
-  Python `ValidationError` with `code`, Go an `*Error` of kind
-  `ErrValidation` with its `Code`, C++ `ErrorKind::Validation` with its code,
-  Rust `Error::Validation`, now a struct variant whose `code` is `Some` for a
-  kernel refusal and `None` for a check the binding makes itself, so a match
-  on `Error::Validation(_)` no longer compiles; a component past the bound is
-  the typed bound error (Python `InputBoundExceededError`, Go
-  `*InputBoundExceededError`, C++ `ErrorKind::InputBoundExceeded`, Rust
-  `Error::InputBoundExceeded`). The shim's own refusal joins the wire
-  vocabulary: `ffi_validation_error` is a row of `docs/WIRE_CODES.yaml`, which
-  `check-wire-codes` holds to the shim's source, and a member of Python
-  `ErrorCode` (`FFI_VALIDATION_ERROR`), Go (`CodeFFIValidationError`) and C++
-  (`ErrorCode::FfiValidationError`, where it was `ErrorCode::Unknown`). A
-  Python `str` holding a lone surrogate reaches the shim and is refused as text
-  that is not UTF-8 instead of raising `UnicodeEncodeError`, and a failure the
-  library answers without an envelope is Python's `ProtocolError`, as in the
-  other three, where it was `FFIError`. The record's magnitude proof is erased,
-  so its two `Integer` fields are all the shared library carries, which
-  `check-erasure` holds, and
-  `src/Aletheia/DBC/TextParser/DecimalEntry/Properties.agda` proves the entry
-  sound and complete on the kernel's own decimal text.
+- **BREAKING (Go, Rust and C++): wide numbers change type.** A rational's parts
+  are unsigned magnitudes with the sign apart, multiplex values are 128-bit, and
+  a value-description key is a sign and a magnitude.
 
-- **Every binding prints an error as its message, the kernel's text verbatim
-  (BREAKING for Go and Rust).** Go's `Error()` drops its `aletheia <kind>
-  error: ` prefix, a wrapped cause still following the message, and Rust's
-  `Display` drops `validation error: `, `protocol error: `, `core error
-  [<code>]: ` and the issue count; the kind, the code and the issues are the
-  error's fields. Python's `build_frame`, `update_frame`, `extract_signals`,
-  `validate_dbc`, `format_dbc` and `format_dbc_text` refusals and its event
-  and batch errors drop the text the binding wrote around the kernel's
-  message and carry the kernel's code, `run_checks` errors carry the
-  kernel's message and code, `dbc_to_json`'s `ValidationError` carries the
-  kernel's code, and a reply whose status is neither `success` nor `error`
-  is a `ProtocolError`.
+- **BREAKING (Python): a `Backend`'s frame builders take `values`.** They are
+  `Fraction`s in place of numerators and denominators.
 
-- **A number a YAML or Excel loader refuses is the kernel's error, with the
-  place the loader read it (BREAKING).** The error keeps the kernel's kind,
-  code and fields and gains two members, the location and the key (Python
-  `location` and `key`, set by `AletheiaError.locate`; Go `Location` and
-  `Key`, set by `aletheia.Locate`; C++ `location()` and `key()`, set by
-  `located()`; Rust `location()` and `key()` on `Error`, carried in a new
-  `located` field of `Error::Validation` and `Error::InputBoundExceeded` and
-  set by `Error::located`), and every binding
-  prints it as `Check 'C': invalid 'value': <kernel message>` or `Row 2:
-  invalid 'Factor': <kernel message>` (C++ `text()` and `what()`). Python's
-  and C++'s loaders printed that text but answered a plain validation error
-  without the code or the bound fields, Go's Excel loader printed `aletheia
-  validation error: row 2: invalid 'Factor': aletheia validation error: ...`
-  around the refusal, and Go's and Rust's YAML loaders and Rust's Excel
-  loader named no place; in Go's
-  Excel loader a number past the bound is the `*InputBoundExceededError`
-  itself, no longer a validation error wrapping it, and a runtime or wire
-  fault keeps its own kind. Python's `AletheiaError` gains `message`, the
-  kernel's text without the location. Every loader hands the kernel the text
-  of every scalar under a number key as the document spells it, `within_ms`
-  included, the Excel `Message ID` column apart, which each loader reads
-  itself as a decimal or `0x` hexadecimal identifier; so one YAML document
-  gets one verdict in all four and loading one that holds a number needs the
-  runtime up: Python and Rust read `0x1F` as 31 and `-9223372036854775808` as
-  an integer the kernel never saw, Python read `!!float 0.1` as the double's
-  exact value and `017` as octal 15, Rust refused every quoted number as a
-  missing `value`, Go and C++ read `within_ms` through their YAML libraries
-  (`0x1F4` as 500), and Python and Rust refused a boolean or a date under a
-  number key (`true`, `yes`, `2024-01-01`) in their own words and C++ refused
-  `true` and `false` itself; each now answers the kernel's verdict, a boolean
-  or a date being `text_parse_failure` or `text_trailing_input` with the
-  place. Python's loader let a document that is not YAML escape as PyYAML's
-  own exception, where the other three answer a validation error; it now
-  raises `ValidationError` reading `invalid YAML:` and PyYAML's reason, and a
-  scalar tagged `!!bool`, `!!timestamp` or `!!value`, or spelled `=`,
-  reaches the kernel as its text in Python and Rust. An Excel text cell
-  holding only whitespace is an absent cell in Python and C++, as it was in
-  Go and Rust. `docs/LOADER_SCENARIOS.yaml` holds the four loaders to one
-  answer per spelling and per refused cell.
+- **BREAKING: two log events are gone.** `enrichment.extraction_failed` and
+  `enrichment.property_index_oob` no longer name anything a client logs.
 
-- **The Go binding holds the kernel's session handle as an integer, so a
-  Go program using it no longer dies when the runtime copies a stack
-  (BREAKING for implementers of `Backend`).** The kernel's `aletheia_init`
-  returns a GHC stable pointer, an index into a table and not an address
-  (`0x30` for a process's first session), and the binding held it in an
-  `unsafe.Pointer`. The Go runtime ends the process with `fatal error:
-  invalid pointer found on stack` whenever it copies a goroutine stack, on
-  growth or on the collector's shrink, while a pointer slot holds a value
-  below 4096; the CLI tests hit it in CI inside `NewClient`, and a program
-  that grows its stack with a live handle hits it every run. The handle is
-  now `aletheia.State`, an integer newtype, across `Backend`, `MockBackend`,
-  `FFIBackend` and `Client`, the cgo trampolines take and return it as
-  `uintptr_t`, and a test grows the stack with a live handle and survives.
+- **BREAKING (Rust): a stream warning's kind is a `WarningKind`.** Error
+  variants carry an `ErrorCode`; `SignalInjection` and `Dbc` hold typed values.
 
-- **No Go source file is over 1000 lines.** Each of the five that were is split
-  along the seams it had, every part named for its subject and holding the
-  declarations byte for byte as they were: `go/aletheia/json.go` keeps the
-  serialization and gives response decoding to `json_response.go` and DBC
-  decoding to `json_dbc.go`; `client.go` keeps the type, its lock and the DBC
-  methods and gives the frame and stream methods to `client_stream.go` and the
-  enrichment helpers to `client_enrich.go`; `stream_test.go` gives the
-  end-of-stream verdict cases to `stream_eos_test.go`; `go/benchmarks/main.go`
-  gives each mode to `throughput.go`, `latency.go` and `scaling.go`;
-  `go/excel/excel_test.go` gives the template, loader-edge, hardening and
-  cell-type cases a file each. The test names listed before and after are the
-  same, the mutation record's hot path names the parts, and every comment that
-  cited moved code cites its new file. The Haskell file over the cap follows,
-  and a tree-wide gate then holds every code file to it.
+- **BREAKING (C++ and Rust): `numerator()` is never negative.** Code that casts
+  it, `static_cast<double>` or `as f64`, compiles and loses the sign: read that
+  with `negative()` (C++) or `is_negative()` (Rust).
 
-- **The C++ mutation binary runs its costliest tests last.** Under `--order
-  decl` and `--abort` a mutant pays for every test ahead of the one that kills
-  it, and the tests that build an input past a size bound through the kernel ran
-  before the loader suites, so every `excel.cpp` mutant paid for them. Those
-  tests are their own units (`cpp/tests/integration_tests_size_bounds.cpp`,
-  `cpp/tests/unit_tests_input_cap.cpp`), tagged `[costly]` and linked last into
-  the mutation binary, while ctest's suites hold the same tests as before; the
-  library lookup two integration units now share is `cpp/tests/find_lib.hpp`.
-  Before a leg's runner starts, the lane lists the binary and refuses one with a
-  `[costly]` test ahead of an untagged one, or with none
-  (`tools/mutation_cpp_order.py`). On a local whole sweep the mutants' run time
-  fell from 2690 s to 517 s and the median `excel.cpp` mutant from 6.15 s to
-  0.60 s; every kill route and ledger row stayed where it was. The merge's drift
-  line now reads the heaviest slice under the recorded cut against the heaviest
-  under a cut on the run's own figures, since one file can outweigh an equal
-  share and no cut goes below it.
+- **BREAKING: YAML check numbers are the kernel's decimals.** In Python `017` is
+  17 and not 15, and `!!float 0.1` is 1/10; `0x1F`, `1_000`, `+5`, `1:30` and
+  padded numbers are refused.
 
-- **The C++ mutation lane holds the pointer-call rule itself.** A census of the
-  whole tree, swept in one process or merged from the legs, is refused when it
-  carries no `cxx_replace_pointer_call_null` mutant, or one on a line reading an
-  exception's message through `what()` (`tools/mutation_cpp_pointer_calls.py`).
-  A change to the Mull patches or `tools/build_mull.sh` now sweeps every lane.
+- **BREAKING: an enrichment whose extraction is refused fails the frame.** The
+  kernel's error is raised, where it was logged and the frame answered.
 
-- **The documentation gate's arm tests plant their files instead of building
-  repositories.** A test whose claim does not need a process starts none. Each
-  arm is handed the paths and texts the gate hands it, so its tests plant the
-  files in a directory and name which are tracked through
-  `python/tests/_planted_tree.py`: a file left untracked is written and not
-  named, one tracked but gone is named and not written. The test files started
-  1627 processes and now start 39, all in `ignored_build_trees`, whose arm
-  asks git which paths the tracked rules ignore and three of whose tests need
-  a repository to hold an untracked ignore file where git would honour it.
-  Mutants of every arm, 562 in all, were run against the tests before and
-  after: each set kills the same ones.
+- **BREAKING (C ABI): an extraction buffer's value entry is 35 bytes.** It holds
+  a `u16` index, a sign byte and two 128-bit parts, where it held two `i64`.
 
-- **The C++ mutation lane sweeps one tree.** It swept three, a leak tree
-  under LeakSanitizer, a plain one and an address one, and merged their
-  verdicts. Measured on the lane's own sweep, the address tree killed nothing
-  the plain tree let live, and the leak tree killed three mutants the plain
-  tree let live, each the removal of a free of a kernel string, which a test
-  now observes by the recording kernel's free count. So the leak and address
-  trees go, with the tree concept in the tooling: `ALETHEIA_MUTATION_CPP_STAGE`
-  names a slice or the merge as the Go lane's variable does, a leg reports as
-  `cpp-1` and its siblings, the record keeps one `runs_by_file` and no per-tree
-  census, the kill-route census has no sanitizer routes, and the `leak` choice
-  of `ALETHEIA_SANITIZER` is gone with its only user. Per pull request the C++
-  binding is three CI legs where it was nine.
+- **BREAKING (C++): a consumer needs GNU C++23 and the shared library at run
+  time.** With libstdc++ 15 the headers need `-std=gnu++23`; a program built on
+  `aletheia-cpp` and the installed CLI load `libaletheia-cpp.so.4`.
 
-- **A C++ test reads every release of a string the kernel handed back.** The
-  recording kernel stand-in counts its frees beside its closes, and two tests
-  read the count: the backend's, one command through the stand-in and one more
-  free; and the renderer's, in a process of its own
-  (`cpp/tests/renderer_frees_kernel_strings_tests.cpp`), since the renderer
-  loads its library once per process, one more free after a render and after
-  a refused decimal parse. Before, only the mutation lane's leak tree saw a
-  removed free, at exit; the plain tree now kills the three such mutants by a
-  test, and the record's two leak-route rows leave the unobserved ledger.
+- **BREAKING (Rust): `Rational` is in lowest terms and compared by value.** Its
+  `integer` takes an `i128`, and the crate needs Rust 1.88.
 
-- **A gate refuses the C++ library's unchecked reads, in the parse the
-  type-deduction ratchet already makes.** `tools/check_cpp_checked_reads.py`
-  now holds the reads of a state a check has ruled out at zero (AGENTS/cpp.md
-  cat 24), and the C++ lint lane's `check-cpp-ast` step,
-  `tools/check_cpp_ast.py`, runs it with the ratchet in one query per unit,
-  the parse being most of either rule's time: 12.2 s and 165 s of CPU for
-  both, where the two apart took 21.9 s and 297 s. A unit clang-query cannot
-  parse fails the step, since clang-query exits zero after a fatal diagnostic
-  and matches nothing in that unit. The rules' tests run the
-  whole query over a tree laid out as the binding's: every spelling the
-  checked-read rule names, the checked form of each, a public header's
-  template read only where a test instantiates it, the two headers held out,
-  and a declaration restating its type. The rules share one
-  driver, `tools/_clang_query.py`, which no longer queries the 182 dependency
-  units the lint tree's configure fetches: the filter named `build/_deps/`, a
-  directory the lint tree does not have, so the ratchet parsed 239 units for
-  57. clang-tidy's `cppcoreguidelines-pro-bounds-avoid-unchecked-container-access`,
-  disabled on the claim that the library subscripts with `[]` on purpose, is
-  on: it holds out the standard maps and the third-party types the library
-  uses through `operator[]` (yaml-cpp, nlohmann, OpenXLSX), the tests disable
-  it, and the benchmark's 28 subscripts take their checked forms.
+- **BREAKING: the C++ client's object layout moves.** Rebuild programs linked
+  against the installed library. The Python binding prints nothing until its
+  host configures logging; C++, Go and Python log `cache.full` once per fill.
 
-- **The mutation lane holds every binding's record exactly, both ways.** The
-  lane failed a run worse than `docs/MUTATION_BENCH.yaml` and passed one better:
-  fewer survivors or not-covered mutants, a ledger row the run no longer
-  produced, which it only reported, and a C++ tree's census past its record. It
-  held no total but to a floor on each C++ tree's census, and no C++ kill route
-  or Go or Rust count of every mutant the tool made at all. The lane now fails a
-  run off the record either way, `regression` where the run is worse and `stale`
-  where it is better, until the change that moved it records the new figure in
-  the same commit: the survivor count, `total_mutants`, `generated` (gremlins'
-  six buckets, cargo-mutants' four, so a mutant that left the surface for the
-  not viable, skipped or unviable bucket is seen), the not-covered count, the
-  C++ census by kill route, every row of the three ledgers, each C++ tree's
-  census at the merge, and a mutant in every file of the C++ `hot_path`. The Go
-  drift tests hold a timed-out Go sweep refused: the run at the ceiling, off the
-  record, is now refused as stale, and a test holds the recorded run with 622
-  mutants timed out refused and the ceiling as the edge.
+- **BREAKING: commands and replies are RFC 8259 JSON text, `\u` escapes read.**
+  Trailing text, non-JSON whitespace, leading zeros, raw control characters in
+  strings and lone surrogate escapes are refused with `dispatch_invalid_json`.
 
-- **Every list in a DBC has a bound, every DBC command decides them alike,
-  and a loaded DBC carries the proof (BREAKING).** Eight lists had no bound on
-  any route and now refuse past it with `input_bound_exceeded`,
-  `array_cardinality`: signal groups (10,000), a signal group's members
-  (1,024), environment variables (10,000), `VAL_` lines naming no signal of
-  the file (10,000), a message's additional senders and a signal's receivers
-  (10,000 each, the node bound), an enumerated attribute type's labels
-  (10,000) and a multiplexed signal's selector values (1,024).
-  `formatDBCText` formatted a DBC past a size bound that every load refused;
-  it now refuses it first, as the loads do, and holds the node list it fills
-  from the message transmitters, when `nodes` is empty, to the node bound.
-  The kernel's `checkBounds` (`Aletheia.DBC.Bounds`) decides every bound in
-  one order, every count before any text, and returns the DBC with the erased
-  proof `IsBoundedDBC` that it meets every one; validity includes that proof,
-  so a loaded DBC is proven bounded, and `checkBounds-accepts` proves a DBC
-  within every bound is accepted. A DBC bound's refusal names the part of the
-  DBC that crossed it in a new envelope key, `field` (`senders array`,
-  `version string`), and every binding's typed bound error carries it:
-  Python `InputBoundExceededError.field`, Go `InputBoundExceededError.Field`,
-  C++ `InputBoundExceededError::field`, Rust `Error::InputBoundExceeded {
-  field, .. }`. A kernel refusal's text is the kernel's message in every
-  binding (Go's `InputBoundExceededError` gains `Message`, which `Error()`
-  returns; Rust's variant gains `message`, which it displays). Python's
-  `parse_dbc` and `parse_dbc_text` raise `InputBoundExceededError` for a bound,
-  as `validate_dbc` and `format_dbc_text` do, where they returned an error
-  response. The limits are mirrored in Python (`MAX_SIGNAL_GROUPS_PER_FILE`,
-  `MAX_ENVIRONMENT_VARIABLES_PER_FILE`,
-  `MAX_UNRESOLVED_VALUE_DESCRIPTIONS_PER_FILE`, `MAX_ENUM_LABELS_PER_ATTRIBUTE`,
-  `MAX_MULTIPLEX_VALUES_PER_SIGNAL`, and `MAX_COMMENTS_PER_FILE`,
-  `MAX_NODES_PER_FILE`, `MAX_VALUE_TABLES_PER_FILE`, which Go and C++ already
-  carried), Go and C++ under their own spellings; every Python limit is a
-  positive integer (`aletheia.common_types.PositiveInt`). Migration: Python,
-  catch `InputBoundExceededError` around `parse_dbc` / `parse_dbc_text` where
-  the returned `ErrorResponse` was read; Rust, add `..` (or the new fields) to
-  a match naming the variant's fields.
-- **A DBC text field's bound is counted, and named, in characters
-  (BREAKING).** The kernel counts a text field's characters; the constant and
-  its mirrors said bytes. `max-string-length-bytes` is
-  `max-string-length-characters`, Python `MAX_STRING_LENGTH_CHARACTERS`, Go
-  `MaxStringLengthCharacters`, C++ `max_string_length_characters`.
-- **A JSON command's length is counted in UTF-8 bytes (BREAKING).** The kernel
-  counted the decoded characters of a command against `max-json-bytes`, while
-  every binding counts the bytes it sends; it now counts the UTF-8 bytes
-  (`Aletheia.Data.UTF8`), so a command of non-ASCII text whose bytes pass
-  64 MiB is refused though its characters do not. The kernel no longer checks
-  a DBC text's own length: the text arrives inside a JSON command, which that
-  bound already covers, and the check could not fire.
-- **Resolving a DBC's references costs time linear in their number.** The
-  validator looked up every message sender, additional sender, receiver and
-  comment target by scanning the node, message or environment-variable list,
-  so a load took time proportional to references times declarations; each
-  list is now indexed once (`Aletheia.DBC.Validator.Targets`, the standard
-  library's AVL trees) and every reference looked up in its index, with the
-  same issues in the same order. `formatDBCText`'s node filling kept the names
-  it had seen in a list the same way and now keeps them in a set. Measured
-  through the library: `parseDBC` with 5,000 nodes and 5,000 / 10,000 /
-  20,000 senders took 12.13 / 27.12 / 57.54 s and takes 0.16 / 0.19 / 0.31 s;
-  `formatDBCText` filling 10,000 / 20,000 / 40,000 nodes took 4.16 / 17.44 /
-  76.62 s and takes 0.10 / 0.27 / 0.62 s. The `load scaling` check's DBC now
-  names a node per message as its sender, an additional sender, its signal's
-  receiver and a comment's target, in every binding, so a lookup that scans a
-  list fails it.
-- **The precise-hints ratchet counts a refined primitive as precise.**
-  `tools/check_precise_hints.py` reads `Annotated[int, Gt(0)]` (a primitive
-  carrying a call of a refinement marker it lists, `Gt` today) as a precise
-  hint, as it reads a named type; `Annotated[int]`, a metadata argument that
-  is no marker call, and a refined non-primitive still count as imprecise.
-  The Python limits are written that way, `PositiveInt` in
-  `aletheia.common_types`, and the ratchet holds 3,589 imprecise hints.
-- **The Go Excel loader's size refusals carry their wire code.** The three
-  bounds `go/excel` checks before reading a workbook built an
-  `InputBoundExceededError` with an empty `Code`, where every other refusal
-  carries `input_bound_exceeded`.
+- **BREAKING: a DBC is held to the DBC character set, a `.dbc` file read byte
+  for byte.** Strings are printable ASCII (no `"` or `\`) plus TAB, LF and CR;
+  names are non-keyword C identifiers; `setProperties` takes only DBC signals.
 
-- **A test starts a process only where its claim needs one.** Every process the
-  four bindings' tests start was judged against what the test claims. The
-  `aletheia check` tests of error frames, an Excel-authored DBC and a filled-in
-  template run the CLI's `main` in the test's own process, where they ran it as
-  a child; undoing either fix they guard still fails them. A pid no process
-  holds is the kernel's `pid_max`, never handed out, where two tests spawned and
-  reaped a child for its id, which the kernel could give to another process. The
-  precise-hints gate's command line runs in-process. Two child scripts a test
-  carried as a string waited on the clock, out of the gate's sight: a lock
-  holder slept 60 s, so a slow run freed the lock under the test, and a
-  streaming handshake polled with a 20 s deadline. The holder now waits on input
-  the test holds and the handshake on a FIFO, and the gate reads a Python test's
-  string that is a script, one that parses and calls or imports something, as
-  the source it is. The processes kept are the ones a claim needs: a runtime
-  started fresh or with another locale or capability count, a heap cap that ends
-  its process, a doc fence built and run as a program, git's tracked set, a
-  signal, a process group, a record lock or resident memory, which belong to a
-  process. The stand-in kernels the tests load (one at another ABI version, one
-  exporting the version alone, one exporting no kernel symbol, one answering
-  null) are built by `cabal run shake -- build` beside the library, from
-  `haskell-shim/test/`, where Go, Python and Rust compiled them with `cc` during
-  their tests and C++ built its own copies in CMake; every binding loads them
-  from the directory of the library it runs against, a missing one failing with
-  the build's name, and Python and Rust load the built symbol-less kernel where
-  they loaded the host's `libm`.
+- **BREAKING: a value past the wire's range is refused on both paths.**
+  JSON extraction refuses a reduced numerator or denominator past 2^128 - 1 in
+  magnitude, as binary extraction does.
 
-- **The test-determinism gate reads every spelling of a clock or a thread,
-  and the Go doc examples and Rust test binaries run one thing at a time.** A
-  primitive named through an import alias, a from-import, a `use` or a
-  using-declaration (`from time import sleep`, `use std::thread::spawn as
-  start`, `import clock "time"`, `using clock = steady_clock`) passed the gate,
-  which read only the qualified spelling; it is now read as the name it stands
-  for. The catalogue adds Go's parallel tests and group goroutines
-  (`t.Parallel`, `b.RunParallel`, `WaitGroup.Go`), Python's process and thread
-  clocks, signal timers and scheduler yield, C++'s POSIX sleeps, clocks and
-  timers, Catch2 benchmarks and scheduler yields, and a Rust test building the
-  async client by a constructor that starts its worker thread. The Go
-  doc-example test ran its fences as parallel subtests capped at the CPU
-  count; it builds them with one `go build` and runs each in turn, 25 fences in
-  2.0 s against 2.2 s, a fence that does not compile still named by file and
-  line. The Rust test harness ran a binary's tests side by side on threads of
-  one process; `rust/.cargo/config.toml` forces `RUST_TEST_THREADS` to 1 for
-  every route that runs them, at no measured cost, and the gate holds it. An
-  example is not a test: a documentation fence or a file under `examples/`
-  keeps the threads and timers its production use needs.
+- **BREAKING (C ABI): the kernel reports the bytes its runtime allocated.**
+  `aletheia_allocated_bytes` runs a collection and returns the process's count
+  (one function per binding); a library at another ABI version is refused.
+
+- **The kernel decides decimals; two wire codes drop their `dbc_` (BREAKING).**
+  Now `text_parse_failure` and `text_trailing_input`; `decimal_overflow` and
+  `decimal_parse_failed` go, and Rust's `Error::Validation` is a struct variant.
+
+- **Errors print as the kernel's text verbatim (BREAKING for Go and Rust).**
+  Go's `Error()` and Rust's `Display` drop their prefixes: read the code and
+  issues from fields. Python refusals carry the kernel's message and code.
+
+- **A number a YAML or Excel loader refuses is the kernel's error (BREAKING).**
+  It carries the kernel's code, a location and a key. YAML numbers need the
+  runtime up; `0x1F` gets the kernel's verdict, except in Excel's `Message ID`.
+
+- **A Go program no longer dies when the runtime copies a stack (BREAKING for
+  callers of `Backend`).** The session handle is now `aletheia.State`, an
+  integer newtype, across `Backend`, `MockBackend`, `FFIBackend` and `Client`.
+
+- **Every list in a DBC has a bound every command decides alike (BREAKING).**
+  The error names its `field`. Python: catch `InputBoundExceededError` around
+  `parse_dbc` and `parse_dbc_text`; Rust's variant holds a `Box<BoundRefusal>`.
+
+- **A DBC text field's bound is counted, and named, in characters (BREAKING).**
+  Use `MAX_STRING_LENGTH_CHARACTERS` (Python), `MaxStringLengthCharacters` (Go)
+  or `max_string_length_characters` (C++) where the constant said bytes.
+
+- **A JSON command's length is counted in UTF-8 bytes (BREAKING).** A command
+  of non-ASCII text whose bytes pass 64 MiB is refused even where its characters
+  do not.
+
+- **Resolving a DBC's references costs time linear in their number.** A DBC with
+  many nodes and senders loads faster, `formatDBCText` fills its nodes faster,
+  and the issues and their order are unchanged.
+
+- **The Go Excel loader's size refusals carry their wire code.** The bounds
+  `go/excel` checks before reading a workbook answer `input_bound_exceeded` in
+  `Code`, as every other size refusal does.
 
 - **A shared CAN ID, message name or signal name is one issue naming every
-  message (BREAKING).** The validator reported `duplicate_message_id`,
-  `duplicate_message_name` and `global_name_collision` once per pair of
-  messages, so k messages sharing a key gave k(k−1)/2 issues (a signal name
-  such as a checksum in 500 messages gave 124,750 warnings), and comparing
-  every pair made validating a DBC take time quadratic in its number of
-  messages. Each shared key is now one issue naming every message that shares
-  it, in order of appearance, the issues in the order the keys first appear:
-  "Messages 'A', 'C' and 'D' share the same CAN ID" (two messages read as
-  before, "Messages 'A' and 'B' share the same CAN ID"), "Messages with CAN
-  IDs 256, 768 and 1024 share the name 'Same'", and "Signal 'Shared' appears
-  in messages 'M1', 'M3' and 'M4'"; a name repeated inside one message is a
-  `duplicate_signal_name`, not a collision between messages. `formatDBCText`
-  warns the same way, once per shared CAN ID, where it gave one generic
-  warning for all of them. The messages are grouped in time O(N log N) by
-  sorting them by key (`Aletheia.Data.KeyConflicts`), and
-  `Aletheia.Data.KeyConflicts.Properties` proves the groups are empty exactly
-  when no two messages share a key, so every check keeps the soundness and
-  completeness lemmas the validity theorem rests on. At 3,200 messages of one
-  signal each, `validateDBC` took 3.43 s and takes 0.69 s, `parseDBC` 6.52 s
-  and 0.94 s, `parseDBCText` 5.81 s and 0.51 s, with byte-identical answers;
-  at the 10,000-message bound they take 2.59 s, 2.90 s and 2.00 s (each the
-  median of three interleaved rounds of the best of three loads, one
-  machine).
-- **A requested value is written exactly or refused with a typed error
-  (BREAKING).** Building or updating a frame (`aletheia_build_frame_bin`,
-  `aletheia_update_frame_bin`) checks each requested value in the kernel: one
-  outside the signal's declared `[minimum, maximum]` is refused with
-  `frame_value_out_of_range`, and one no integer raw value scales to exactly,
-  such as `1.5` at factor 1 or `0.3` at factor 0.5, with
-  `frame_value_not_representable`; each message names the signal and the
-  value, with the range or with the factor and offset. Before, a value outside
-  the range and a raw value of 2^n or more for n bits both failed with
-  `frame_injection_failed`, which is removed; an inexact value was written
-  with its raw value rounded down (`1.5` at factor 1 became `1`); and a raw
-  value the bits do not carry as it is, a signed one past their positive half
-  or a negative one in unsigned bits, was written wrapped: a signed 8-bit
-  signal declared `[-128, 255]` took 200 and read back -56. A caller matching
-  the removed code matches the two new ones instead (Python
-  `ErrorCode.FRAME_VALUE_OUT_OF_RANGE` / `FRAME_VALUE_NOT_REPRESENTABLE` for
-  `FRAME_INJECTION_FAILED`, Go `CodeFrameValueOutOfRange` /
-  `CodeFrameValueNotRepresentable` for `CodeFrameInjectionFailed`, C++
-  `ErrorCode::FrameValueOutOfRange` / `FrameValueNotRepresentable` for
-  `FrameInjectionFailed`; Rust carries the code as a string). An accepted
-  value is written from the proof that its raw value fits the signal's bits,
-  with nothing checked at the write. Encoding a value is its own layer
-  (`Aletheia.CAN.Encoding.Value`: `checkValue`, `encodedBits`), between the
-  arithmetic of the raw range (`Aletheia.CAN.Encoding.Arithmetic.Range`) and
-  writing bits into a frame (`withInjected`), and `validDBC-roundtrip`
-  (`Aletheia.CAN.Batch.Properties.Capstone`) proves that every value an
-  accepted build writes for distinct, always-present signals of the message
-  reads back as requested, with no premise on the values.
+  message (BREAKING).** Expect one issue per shared key, not one per pair, and
+  `formatDBCText` warns once per shared CAN ID; large DBCs validate faster.
+
+- **A requested value is written exactly or refused (BREAKING).** Match the new
+  `frame_value_out_of_range` and `frame_value_not_representable` in place of the
+  removed `frame_injection_failed`; an inexact value is no longer rounded down.
+
 - **An update refuses two requested signals sharing a bit (BREAKING).**
-  `aletheia_update_frame_bin` wrote both, the later write replacing the
-  earlier one's bits, where a build refused the same request; an update now
-  refuses it too, with `frame_signals_overlap`.
-- **A DBC whose declared range reaches past its bits is refused at load
-  (BREAKING).** The new error-severity issue `range_exceeds_bits` names a
-  signal whose declared minimum lies below, or maximum above, every physical
-  value its bits carry after scaling: the range admits values no frame can
-  hold. Every route that loads a DBC refuses it with
-  `handler_validation_failed`, and `validateDBC` reports it; each binding
-  names the issue (Python `IssueCode.RANGE_EXCEEDS_BITS`, Go
-  `IssueRangeExceedsBits`, C++ and Rust `IssueCode::RangeExceedsBits`).
-  `IsValidDBC` (renamed from `ValidDBC`) gains the field `rangesWithinBits`,
-  and a loaded DBC is a `ValidDBC`, the DBC with its erased validity proof,
-  from which the frame builder reads the facts it writes under. The
-  `offset_scale_range` warning named the inverse of its condition; it now says
-  which way the bits overreach: "its bits carry values below the declared
-  minimum" or "above the declared maximum". In `examples/example_canfd.dbc`,
-  `GPSAltitude`'s maximum is 3276.7, the most its 16 signed bits carry at
-  factor 0.1, and `IMUTemp` is unsigned, as its range `[-40, 215]` at offset
-  -40 reads; `Temp` in the corpus's `kitchen_sink.dbc` and `EngineTemp` in
-  `examples/demo/demo_workbook.xlsx` are unsigned for the same reason, and
-  each binding's benchmark DBC follows the example.
-- **The kernel decides every frame it accepts (BREAKING).** A frame handed to
-  a binary entry (`aletheia_send_frame`, `aletheia_send_remote`,
-  `aletheia_extract_signals`, `aletheia_build_frame_bin`,
-  `aletheia_update_frame_bin`, `aletheia_extract_signals_bin`) is parsed by
-  the Agda kernel (`Aletheia.CAN.Frame.Parse`) from the fields the C caller
-  passed: the identifier against its range, the DLC code against 15, then the
-  payload byte by byte, every byte below 256 and exactly as many as the DLC
-  names; the signal values of a build or an update as three parallel arrays,
-  each denominator positive and the rational normalised in the kernel. Every
-  refusal is a typed `ParseError` with its own wire code:
-  `parse_std_can_id_out_of_range` / `parse_ext_can_id_out_of_range` (the codes
-  the DBC parser already used for the same check), and the new
-  `parse_dlc_code_out_of_range`, `parse_payload_length_mismatch`,
-  `parse_payload_byte_out_of_range`, `parse_non_positive_denominator` and
-  `parse_signal_array_length_mismatch`. The frame the parser builds carries
-  each invariant as an erased proof (`CANFrame` now holds every payload byte's
-  range), and `Aletheia.CAN.Frame.Parse.Properties` proves the parser takes a
-  valid frame as it is and refuses only on the condition each code names. The
-  Haskell shim no longer decides anything a frame must satisfy, and builds no
-  kernel value: it reads the caller's memory, refusing a NULL pointer, and
-  hands the kernel builtins. Before, the shim checked the DLC, the length and
-  the identifier itself and answered `ffi_validation_error` with a free-form
-  message; a payload over 64 bytes and one of the wrong length got two
-  different codes for the same defect.
+  Like a build, `aletheia_update_frame_bin` now refuses the request, with
+  `frame_signals_overlap`; the later write no longer replaces the earlier bits.
+
+- **A DBC declaring a range past its bits is refused at load (BREAKING).** The
+  issue `range_exceeds_bits` names a signal whose declared minimum or maximum
+  lies past every physical value its bits carry after scaling.
+
+- **The kernel decides every frame it accepts (BREAKING).** Each refusal has its
+  own wire code, such as `parse_payload_length_mismatch`; a bad DLC, length or
+  identifier no longer answers `ffi_validation_error`.
+
 - **A binary-output entry's refusal is the JSON error envelope (BREAKING).**
-  `aletheia_build_frame_bin`, `aletheia_update_frame_bin` and
-  `aletheia_extract_signals_bin` set the buffer's `err` to the same
-  `{"status": "error", "code": …, "message": …}` envelope every other entry
-  answers with, where it was a bare message: the kernel's typed refusal, or
-  the shim's own (`ffi_validation_error`, a NULL pointer or a buffer too small
-  for the frame the kernel built). Every binding reads the envelope and
-  carries its `code` on the error it raises. The buffer's capacity is checked
-  against the bytes the kernel returns.
-- **Every binding's backend checks a payload against its DLC (BREAKING).**
-  The Go, C++ and Rust backends refused only a payload over 64 bytes before
-  narrowing its length into the `uint8_t` `data_len`, and Python's refused
-  none, its ctypes field wrapping a 264-byte payload to 8; each now refuses
-  any payload whose length is not the DLC's byte count, as each client
-  already did, so no length is ever narrowed into a different frame.
+  The buffer's `err` holds that envelope, not a bare message, and each binding's
+  error carries its `code`.
 
-- **The C++ mutation lane's slice weights are re-taken from the tree as it
-  stands, and each lane saves only the compiler cache its run used.** The
-  weights (`runs_by_file`) predated `cpp/src/checked.cpp`, which the merge
-  printed as a file whose runs the record does not count, and against them the
-  heaviest slice of heavy lanes run 37091833867 cost 5.1, 5.7 and 9.7 percent
-  over an equal share in the leak, plain and address trees. Re-taken from that
-  run's `cpp-runs.json`, the same run reads 0.0, 0.0 and 2.1, the address tree's
-  `cpp/src/client.cpp` alone being more than a third of that tree. The docs now
-  say what the unit, a suite run, holds: a file's figure across CI runners and
-  not across hosts. Over three pairs of CI runs, each pair sweeping one state of
-  the C++ sources, each file of 2 percent of its tree or more in either run of a
-  pair gets 0.82 to 1.22 times the other run's figure, and a local sweep gives
-  each such file 0.33 to 0.63 times the CI one. A lane's saved cache kept
-  superseded generations until the 128M cap trimmed them, and the four fresh
-  caches of the largest slice the cap was sized to hold, 130.4 MB, had outgrown
-  it. A lane now takes its start where it zeroes its cache's counters, after the
-  restore, and before the save it runs `tools/mutation_ccache_evict.sh`, which
-  evicts every entry the run did not use, going by the modification time a hit
-  refreshes, keeps the cache whole for a run that compiled nothing or whose
-  build stopped at a failed compile or a preprocessor error, prints the cache
-  before and after, and fails when an entry from a second or more before the
-  start survives; the 128M cap holds three of the largest slice, enough for the
-  run after one build that stopped at a failed compile, with room to grow.
+- **Every binding's FFI backend checks a payload against its DLC (BREAKING).** A
+  payload whose length is not the DLC's byte count is refused, so no length is
+  ever narrowed into a different frame.
 
-- **The C++ binding reads a state a check rules out in a checked form, and its
-  mutation lane sweeps the three suites that need a process of their own for the
-  renderer and the runtime.** A guard whose mutant stopped it firing let the
-  code read an optional's or an expected's value that was not there, an
-  expected's error that was not there, or a subscript, a span's slice or a
-  string view's narrowing past the end: undefined on a shipped build, and killed
-  in the lane only by the standard library's debug checks, which no test
-  observes. Every such read in the library and the command-line tool now takes
-  its checked form, `value()`, `at()`, `substr()`, and two helpers for what
-  C++23 leaves unchecked, `detail::error_of` and `detail::subspan_at`
-  (`cpp/include/aletheia/detail/checked.hpp`). Each is a template forwarding to
-  one check compiled once and tested at its boundaries; the one mutant of that
-  check no test can observe computes a slice past the end, which the standard
-  library's own assertion ends. A helper whose check sat in the template would
-  carry a mutant no correct call can kill for every type it reads, measured. A
-  span's front and back have no checked form in C++23 and stay as they were. The
-  ZIP walker's little-endian readers read their field as a checked slice, each
-  byte at its place, without an index. One guard read the same as the `catch`
-  around it, so that `catch` now takes nlohmann's exceptions only, as its
-  comment said, and a test that read past the end of the list it checked now
-  requires its size first. The three suites, the renderer with the runtime down,
-  the renderer with no library to find (a suite new here) and the runtime's heap
-  cap, run as children of one binary, `cpp/tests/fresh_process_tests.cpp`, which
-  ctest runs and the mutation build folds into the mutation binary: each child
-  inherits the mutant and links the same library, itself or through the workload
-  it starts, and a child that fails ends its parent as it ended itself, so the
-  sweep reads the child's ending as its own. Each child, and the heap-cap
-  suite's workload, dies with the process that started it, since the runner ends
-  a run by killing the test binary alone and then waits for its pipes, which a
-  child left running would hold. The children build into a `fresh-process`
-  directory of the tree, which the sweep cache keys as it keys the test kernels.
-  The decimal parser's denominator check builds the rational or throws, as Go's
-  does, so the call site has no branch left to mutate. The lane's survivors fall
-  from 8 to 4, both classes now ruled: the client's re-check of a precondition
-  nothing proves, and `from_chars`'s out-parameter. The kills no test observes
-  fall from 172 mutants in 122 ledger rows to 58 in 35.
-- **The runtime parameters' document has one check.** The four bindings'
-  tests that compared their mirrored constants with
-  `docs/RESOURCE_BUDGETS.yaml` repeated `tools/check_rts_runtime.py`, and
-  are gone; the gate now also refuses a heap-cap flag and byte count that
-  name two caps, reading the flag as GHC does (a decimal count, a unit in
-  either case), which the Go and Python suites checked on their own. The
-  Python heap-cap containment suite is `test_rts_heap_cap.py`, as the other
-  bindings name theirs, and Go's argument-vector test is `rts_test.go`.
-
-- **A push connects only once its tree has passed a sweep:
-  `tools/sweep_evidence.py`, which the pre-push hook asks first.** git
-  connects to the remote before it runs the pre-push hook, so a sweep run in
-  the hook held the connection idle for its whole length, and a connection
-  that died idle hung the push after `Total N (delta M)`. A full sweep now
-  writes the tree of the tracked content it saw into its log's header and,
-  measured again, into its summary, and `tools/sweep_evidence.py REV...` names
-  the finished, passing log that vouches for each revision's tree. The hook
-  asks it about the commit each pushed ref names and allows the push at once
-  when every one has a record. Otherwise it runs the sweep and asks again, so
-  it refuses a push whose sweep passed on a working tree other than the pushed
-  one; it refuses as well when either tool is missing. A sweep beside an
-  untracked file git does not ignore, a subset sweep (`--fast`, `--lanes`) and
-  a sweep whose tree moved while it ran vouch for no tree. The tree is named
-  through a copy of the index that keeps the index's modification time, so a
-  file rewritten at its size within the second it was last written is re-read
-  by git rather than trusted on stat data that still matches. Re-run
-  `python/.venv/bin/python -m tools.install_hooks` to install the new hook.
-
-- **BREAKING (Python): `aletheia.asyncio.testing.gated_backend` is gone; tests
-  hand the async client a `TurnExecutor` as its `run_in_thread`.**
-  `gated_backend` blocked a worker thread inside a backend call and needed a
-  second task and a thread rendezvous to cancel around it. The async client
-  still runs each sync call on a worker thread through `asyncio.to_thread`, so
-  a long call never blocks the host's event loop, and takes a keyword-only
-  `run_in_thread` for tests: `TurnExecutor` runs each call at its turn on the
-  event loop instead, a call cancelled before its turn never running, as an
-  executor drops a queued job, and `cancel_at(task, after=CallCount(n))`
-  cancels at an exact call, so a test of async cancellation relies on no
-  thread, timer or second task. A test holds every async method, the shielded
-  `__aenter__` and `close` included, to its count of calls through the runner,
-  and the determinism gate refuses a test that builds the async client without
-  one.
+- **BREAKING (Python): `aletheia.asyncio.testing.gated_backend` is gone.** Tests
+  hand the async client a `TurnExecutor` as its keyword-only `run_in_thread`; it
+  runs each call at its turn on the event loop, with no thread or timer.
 
 - **BREAKING (Go): an attribute target carries its identifier as a `CANID`.**
-  `DBCAttrTargetMessage`, `DBCAttrTargetSignal`, `DBCAttrTargetNodeMsg` and
-  `DBCAttrTargetNodeSig` held an `ID uint32` beside an `Extended bool`, read
-  from the wire unchecked against the width the flag names, where a message
-  and a comment target carry a `CANID`. They carry one now, read through the
-  same width check, so an attribute naming a standard identifier past eleven
-  bits is refused at the parse, as the C++ binding's `CanId` targets refuse
-  it.
+  It replaces `ID uint32` and `Extended bool` on the four attribute targets.
 
-- **The Rust binding releases a kernel string in the function that copies
-  it.** A string the kernel returned was copied out and then released by the
-  `Drop` of a guard that lived for one statement at each of its three uses;
-  removing that release was a mutant no test observes without a leak
-  checker. `take_response` copies the string and releases it in one
-  function, as the Go and C++ bindings do, and the backend handle's `Drop` is
-  the Rust lane's one survivor left.
+- **The Python encoder writes UTF-8 whatever its caller asks.** Handed to
+  `json.dumps`, `FractionJSONEncoder` writes non-ASCII text as its characters,
+  not as `\uXXXX` escapes no other binding writes.
 
-- **The Python encoder writes UTF-8 whatever its caller asks.**
-  `FractionJSONEncoder` wrote non-ASCII text as its UTF-8 characters only
-  when `dump_json` passed `ensure_ascii=False`, so a caller handing the
-  encoder to `json.dumps` itself got `\uXXXX` escapes, bytes no other binding
-  writes. The encoder holds the choice now and `dump_json` passes none, which
-  retires the Python lane's one survivor, that argument's `False` turned
-  `None`, which `json.dumps` read the same.
+- **The Go mutation lane leaves no mutant alive.** An inverted check range is
+  refused with its bounds rendered as the between predicate renders them.
 
-- **The Go mutation lane leaves no mutant alive.** Of the 63 survivors its
-  ledger recorded, most fell to tests at the edge each check guards: a
-  timestamp of zero on every event entry, through the real library; an
-  input of exactly a size limit; equal range bounds; a time bound
-  of zero; a start bit of 511; a payload of 64 bytes and a frame of none; an
-  empty multiplexor list; an out-of-range property index equal to the count;
-  the verdict counts the `stream.ended` record carries. The rest left with
-  the code that made them unobservable: the five input-size refusals and the
-  six timestamp checks are one function each, the hand-written integer range
-  checks one checked conversion, the two rational comparisons one, a capacity
-  hint gives way to `slices.Concat`, and two presence checks a nil lookup
-  already answered are gone. The binary extraction decoder reads its reason
-  offsets in place, so a clean frame allocates nothing for them and the fast
-  path that skipped them, which saved nothing measurable (a clean frame at 4
-  allocations either way), is gone; the end-of-stream frame pass is a method
-  of its own. Two messages changed with the checks they come from: a wire
-  rational's denominator is refused as non-positive, as the peers word it,
-  and an inverted check range renders its bounds as the between predicate
-  does. The lane's four timeouts were mutants that returned from a call
-  holding the client's lock, which the next test then waited on until
-  gremlins' clock ran out. The lock now hands back its own release, one that
-  does nothing when no lock was taken, every return of `acquire` passes that
-  release on, and every call defers it before it checks the error, so no
-  check a mutant inverts can leave the lock held: the call returns without
-  its work and the next assertion fails at once. With no test waiting on a
-  clock either, no mutant can hang a run, so gremlins' cap is a backstop, its
-  coefficient raised to 50 in `go/.gremlins.yaml`, and the lane refuses a
-  sweep in which it fired at all as a disturbed run, rather than count the
-  mutant either way.
+- **The Tutorial's C++ and Rust paths run in their doc-example harnesses.**
+  Each path is one program cut into steps, compiled and run whole, and a failed
+  C++ step now exits non-zero.
 
-- **Every mutation lane refuses a sweep in which its tool's cap fired.** A
-  mutant the tool ended at its timeout is neither killed nor survived, and no
-  verdict comes from a clock. The C++ lane counted such a mutant killed: the
-  merge now takes the timeout count from the kill-route census and leaves it out
-  of the killed count, and the Python lane passes mutmut's count through. Every
-  baseline records `timeout_ceiling: 0`, the Rust lane's former 30 and its
-  justification by a quiet or loaded host included.
+- **The README's Install section names the bundle, the packages and the image.**
+  The bundle, the `.deb` and `.rpm` packages and the GHCR container image are
+  each linked to their section of the Distribution Guide.
 
-- **A C++ mutant's run ends at its first failing assertion.** The lane hands
-  the test binary Catch2's `--abort`, where the suite used to run to its end
-  after a test had already killed the mutant: on the runner a killed run cost
-  what a survivor did, 16.4 s against 16.3 s on the slowest leg, which set the
-  pull request's wall clock. Measured locally on that leg, 494 mutants, the
-  sweep fell from 2m44.9s to 45.4s and its summed run time from 2500 s to
-  848 s. The kill-route census reads any failing assertion as the test's kill,
-  whatever ends the process after it, and a run with none goes through the
-  whole suite either way, so no route moves: compared mutant by mutant, the
-  two sweeps read the same route, check and status for every one.
+- **Every benchmark report records the run that produced it.** A `parameters`
+  object carries each flag the mode read, `--json` aside. Without `--warmup`,
+  the Go and Rust latency harnesses now warm for 500 operations.
 
-- **The cabal store a CI job saves holds the shake executable's dependencies.**
-  Every job that builds the kernel compiled `shake` and the libraries it
-  needs before its first Shake target, because the store was saved right
-  after the Agda install and before anything built them: 43 s of the 44 s
-  FFI step on each job of a heavy-lanes run. A step builds them into the
-  store ahead of the save, the store key carries `shake.cabal`'s hash, and a
-  key that matches nothing restores the newest store under its prefix, so a
-  dependency change builds only the difference. The package index is
-  refreshed only where nothing was restored, so a store restored that way
-  resolves against the index its packages were built from instead of
-  rebuilding Agda against a newer one.
+- **The Go CLI is a module of its own, `go/cmd/aletheia`.** It is in the `go/`
+  workspace beside the core and Excel modules; `template` writes through the
+  Excel module, and the core module stays free of excelize.
 
-- **CI restores GHC instead of installing it.** `ghcup install ghc` spent 92 s
-  of every job's 104 s toolchain step unpacking and installing the bindist. The
-  directory ghcup installs GHC to, read from `ghcup whereis basedir`, is now
-  cached under a key naming the version and the runner image; a job that finds
-  it skips the install, and every job runs the compiler from that directory, hit
-  or miss. It is cached where ghcup puts it rather than moved, because the
-  kernel library a job restores from the build-tree cache names GHC's library
-  directory in its RUNPATH, so a compiler cached anywhere else leaves that
-  library unable to load GHC's runtime.
+- **BREAKING (C ABI): entries take structures, and the library reports its ABI
+  version.** Every entry with more than one value takes structures by pointer,
+  `aletheia_parse_decimal` fills one, and loaders refuse another ABI version.
 
-- **The Go mutation lane is two shards and a merge.** It set the pull
-  request's wall clock once the C++ legs stopped running whole suites: 1275 s
-  of a 21m56s run, its sweep 1092 s for 763 mutants on four cores. No
-  per-mutant flag moves that, since two thirds of a mutant's 3.5 s of CPU is
-  compiling and linking the cgo test binary (`-vet=off` and `-ldflags=-w`
-  measured no different), so the sweep is cut by file instead: each shard runs
-  gremlins under the package's configuration with the other shard's files held
-  out, the files weighed by their sizes in the tree (399 and 364 mutants over
-  the record, against the census's own best of 382 and 381). After its sweep a
-  shard takes gremlins' dry-run census of the whole package, and the merge,
-  one `mutation merge` job for the C++ legs and the Go shards, holds the
-  shards to it file by file: one census, disjoint files covering the package,
-  and each shard's sweep exactly the census's mutants of its files, so a shard
-  that lost the package's own exclusions or held out too much is refused. The
-  census comes after the sweep, and every `go test` of the sweep runs with
-  `-count=1`, because gremlins stops each mutant at three times its coverage
-  run, and a coverage run the build or test cache had served stopped most of
-  them before their tests ended. Swept locally through the runner, the shards
-  took 84.7 s and 89.2 s and merged to the recorded verdict: the same 763
-  mutants as the last whole sweep on the runner, four of them timing out on
-  the loaded host where the runner killed or kept them.
-
-- **Every job that builds the dev venv reuses pip's wheel cache.** The venv is
-  created afresh on every run, and its install fetched every wheel again from
-  the package index: about 20 s in most jobs, 97 s and 255 s in two jobs of one
-  run. Each `actions/setup-python` step ahead of a venv install now caches pip,
-  keyed on `python/pyproject.toml`, as the benchmark workflow already did.
-
-- **The Rust mutation lane sweeps in shards side by side.** It set the pull
-  request's wall clock once the Go lane was sharded: 905 s, its sweep 845 s.
-  A copy of the tree holds one mutant at a time, and a mutant's cost is mostly
-  the incremental build of the test binary, so the runner's other cores sat
-  idle. The runner now sweeps one shard per CPU, up to four, each in a scratch
-  copy of its own with `cargo mutants --shard k/N`, and merges the shards'
-  outcomes into the one `outcomes.json` the survivor ledger reads, refusing a
-  mutant two shards swept, one no shard swept, or one the tool's own listing
-  does not name. On four CPUs locally the sweep took 609.0 s whole and 479.4 s
-  in four shards, both 316 mutants with 314 killed and 2 surviving, the record.
-
-- **Each C++ mutation tree's slices are cut on what its files cost that
-  tree.** The slices were cut on mutant counts shared by the three trees, and
-  a mutant's cost varies by file and by tree, so the plain tree's slices cost
-  79, 119 and 271 runs of the unmutated suite on one run, its third slice the
-  longest C++ job at 863 s. The record now keeps, per tree, the suite runs
-  each file's mutants cost (`runs_by_file`): a mutant's run time over its
-  leg's unmutated run, which holds the figure across the CI runners a leg
-  draws, whose unmutated suite took from 4.9 to 13.9 s across that run's legs.
-  Cut on them, the plain tree's slices cost 157, 156 and 156, the leak tree's
-  248 each, and the address tree's 76, 63 and 63, its `client.cpp` alone more
-  than a third. Each leg writes its figures beside its reports, the merge sums
-  them per tree into `cpp-runs.json`, which the weights are re-taken from, and
-  prints per tree how far the recorded weights have drifted; the setup gate
-  refuses a tree the record weighs nothing for.
-
-- **Full CI caches the dependencies of every C++ tree it configures.** The
-  cache listed a `build-tidy` tree no step configures and left out
-  `build-asan`, so the address-sanitizer tree downloaded every FetchContent
-  dependency on every run, exposed to the source server's transient errors.
-  It now lists the test build and both sanitizer trees, under a new key so
-  the next run saves them, and a test holds the list to the trees the sweep's
-  steps configure.
-
-- **The Rust mutation sweep builds without debug information.** A mutant's
-  cost is the incremental build of the crate's tests, and debug information is
-  a fifth of it: one mutant's build took 4.77 s against 5.98 s on one CPU,
-  1.45 s against 1.87 s on four. The sweep sets `CARGO_PROFILE_DEV_DEBUG=0`
-  for its own builds alone. Swept in four shards on four CPUs, the lane took
-  360.8 s against 479.4 s, with the same verdict: 316 mutants, 314 killed, 2
-  surviving, 59 unviable. A faster linker was measured and left out: the
-  toolchain already links with `rust-lld`, and mold gained no more than the
-  noise.
-
-- **Full CI runs its sweep in two parts on two runners.** The sweep is bound
-  by a four-core runner's work: on a slower machine every step slowed
-  together, the sweep 886 s and 905 s against 635 s. `tools/run_ci.py --lanes`
-  runs the named lanes and the build alone, and the workflow runs two parts as
-  a matrix, the C++ tests, asan and the lint gates in one and the Agda gates,
-  the bindings and ubsan in the other; `tools/run_ci.py (all gates)`, the
-  required check, now reports both and fails unless both passed. clang-tidy
-  and the two checks reading its compile database run in a lane of their own,
-  over a tree configured and never built (`cpp/build-tidy`), so they do not
-  wait for the test build. Timed alone on four CPUs, the parts took 242.5 s and
-  192.3 s against 330 s for the whole sweep; the lint lane on one runner made
-  the sweep slower, 342 s, which is why it came with the second. A sweep of some
-  lanes records no build-source digest, so its log is no evidence that every
-  gate observed the tree.
-
-- **The Rust mutation lane runs as two jobs on two runners.** A mutant's build
-  is bound by the CPUs it shares with the other shards, so a second runner
-  halves each job's share of the sweep. Each job sweeps four of the jobs' eight
-  shards (`ALETHEIA_MUTATION_RUST_STAGE`), whatever CPUs it was given, so the
-  two jobs' shards partition one listing, and keeps that listing beside its
-  shards. The `mutation merge` job holds the two listings to each other and to
-  the commit, refuses a shard missing or doubled, and merges the eight as one
-  sweep's, the lane's verdict. Run the same way locally, each job alone on four
-  CPUs took 227 s and 190 s against 361 s for the whole sweep, and the merge
-  read the record: 375 mutants, 314 caught, 2 missed, 59 unviable.
-
-- **No mutation lane runs its binding's doc-example harness.** A harness
-  builds and runs every fence of the documents as a program of its own,
-  holding the documents to the binding, and costs its whole run once per
-  mutant: the Rust sweep with it and without it gave the same verdict on
-  every mutant, and the C++ harness alone takes 43 s a run. The Go lane skips
-  `TestDocExamples` through the `GOFLAGS` it hands gremlins, the Rust lane
-  skips its harness in `rust/.cargo/mutants.toml`, and
-  `tools/check_mutation_setup.py` refuses a lane whose per-mutant run reaches
-  one: `--markdown-docs` among the arguments mutmut runs pytest with, a Go or
-  Rust skip that misses its harness or drops another test, the C++ harness's
-  source compiled into the binary the Mull runner runs, or a harness renamed
-  out from under the check.
-
-- **Each doc-example harness refuses a fence hidden behind a suffixed info
-  word** (`go,ignore`, `cpp,x`, `rust,ignore`, `python,notest`), which a reader
-  takes for code in the binding's language and the harness neither runs nor
-  counts. The Go and C++ harnesses refused an HTML-comment annotation instead,
-  which neither of them reads, so the gate hid nothing it could see; both of
-  those gates are gone.
-- **A fence opened with backticks is one a doc-example harness runs; code no
-  check runs opens with tildes.** `tools/check_fence_marks.py`, a fast-tier
-  gate, refuses a backtick fence whose first info word is not `py`, `python`,
-  `python3`, `go`, `cpp` or `rust`, or whose run is not three backticks. Shell
-  sessions, JSON messages, signature sketches and the changelog's past-release
-  examples moved to tildes, each document rendering as before. The Python
-  harness collects through a parser that reads a tilde fence as code, as the
-  Go, C++ and Rust extractors already did, so the lists of documents whose
-  fences a harness skips are gone. The Python and Rust harnesses gain the
-  floor under their fence count that the Go and C++ ones carry.
-- **The Tutorial's C++ and Rust paths run in their doc-example harnesses.** Each
-  path is one program cut into steps: the harness joins its fences in order and
-  compiles and runs the whole. The C++ steps exited zero when a call failed and
-  dropped the sent frame's answer; a failed step now exits non-zero, and the
-  last step closes `main`. The C++ harness's own prologue exits non-zero on a
-  DBC that does not parse, where it went on with a client holding none.
-- **The C++ and Go doc-example harnesses hold their document lists to the tree
-  both ways, as the Python one does:** a tracked Markdown file carrying a fence
-  in the binding's language is listed, and a listed one is tracked and carries
-  one, as the harness's own extractor reads it. The C++ list named `README.md`
-  and `docs/architecture/CANCELLATION.md`, which carry no C++ fence, and missed
-  `cpp/README.md`; the Go list named `README.md`, which carries no Go fence. The
-  C++ harness skipped a listed document that did not exist, so a rename shrank
-  the run silently; it now fails. The Go list and extractor moved to
-  `go/aletheia/doc_files_test.go`, which builds without cgo, so its list gates,
-  and the notest and floor gates beside them, run in the no-cgo build too.
-- **The doc-example harness, its structural test and the command
-  AGENTS/python.md prints read one list of documents,** `DOC_EXAMPLE_DOCS` in
-  `tools/_ci_steps.py`: every tracked Markdown file carrying a Python fence,
-  `CHANGELOG.md` aside. CI ran every Markdown file under `docs/`, while the
-  documented command and the test named a subset that missed the Tutorial's 10
-  Python fences and listed three documents carrying none; the directory form
-  also collected untracked Markdown under `docs/` on a local run. The test
-  holds the list to the tree both ways, and fails on a Python fence the harness
-  skips in any spelling the plugin runs, `py`, `python3` and tilde fences
-  included, where it matched a backtick `python` fence alone.
-- **The README's Install section names every route a release is published
-  by:** the bundle, the `.deb` and `.rpm` packages, and the GHCR container
-  image, each linked to its section of the Distribution Guide, which keeps the
-  commands. It named the first two only.
-- **ruff, basedpyright and pylint read one set of Python:** the package's
-  sources, tests and benchmarks, and the repository root's gate scripts, shared
-  micro-benchmarks, examples and doc-example harness (`ROOT_PYTHON` in
-  `tools/_ci_steps.py`). The root's `benchmarks/` was read by no linter, and
-  `examples/` and `conftest.py` by ruff alone; a test now holds every tracked
-  Python file outside `.archive/` to all three. The doc-example harness runs
-  with pytest's `pythonpath` set to `python/tests` and builds its DBC on the
-  suite's `CANONICAL_SIGNAL`, so the default signal is spelled once.
-- **Every benchmark report records the run that produced it:** a `parameters`
-  object carries each flag the mode read, `--json` aside, under the flag's
-  name (throughput `frames`, `runs` and `warmup`, latency `ops` and `warmup`,
-  scaling `runs` and `quick`), and a C++ report names its compiler in
-  `system`. `benchmarks/SCHEMA.yaml` pins both, with each binding's `system`
-  keys, and `tools/check_bench_schema.py` refuses a report whose parameters are
-  not the flags it was given, a count recorded as a switch included. Run
-  without `--warmup`, the Go and Rust latency harnesses now warm for 500
-  operations, as the Python and C++ ones do, where they warmed for 2.
-- **The Go CLI is a module of its own, `go/cmd/aletheia`,** in the `go/`
-  workspace beside the core and Excel modules: `template` writes through the
-  Excel module, and the core module stays free of excelize. The CI's Go steps
-  and the coverage lane read the modules from the workspace with `go list -m`,
-  so a module the workspace adds is gated the day it is added.
-- **BREAKING (C ABI): the kernel's entries take structures, not lists of
-  parameters, and the library reports the ABI version it implements.** Every
-  entry carrying more than one value takes it as one structure by pointer: the
-  three trace events (`aletheia_send_frame`, `aletheia_send_remote`,
-  `aletheia_send_error`), `aletheia_extract_signals` and the three binary
-  entries take `struct aletheia_frame`, reading the fields each needs; the
-  binary entries take their signal values as `struct aletheia_signal_values`
-  and write their result, with its error, into `struct aletheia_buffer`;
-  `aletheia_format_rational` takes `struct aletheia_rational`; and
-  `aletheia_parse_decimal` writes the rational into `struct aletheia_decimal`
-  instead of answering a JSON string, its error the same JSON envelope as
-  before. The header moves to `haskell-shim/include/aletheia.h` (release
-  bundles still ship it as `include/aletheia.h`), declares every export, and
-  fixes the five layouts with compile-time assertions. The Haskell shim reads
-  and writes the structures through `Storable` instances hsc2hs generates from
-  the header, so the shim carries no offset of its own, and the new
-  `abi-layout` test suite, run by `check-fidelity`, has C fill each structure
-  and check it back field by field. Each binding's mirror is held to the header
-  by a test of its own (a ctypes `Structure`, a `#[repr(C)]` struct, a C++
-  struct, and for Go one package header every cgo preamble includes). The Go
-  binding keeps Go pointers out of Go memory handed to C by filling each
-  structure's pointers inside its C trampoline. `aletheia_abi_version()`
-  returns the header's `ALETHEIA_ABI_VERSION` from plain C, callable before the
-  GHC runtime starts; every loader of every binding, the backend's and the
-  rational renderer's and decimal parser's alike, reads it before any other
-  entry and refuses a library at another version with both numbers named
-  (Rust's new `Error::AbiMismatch`, the FFI error kind elsewhere), and a
-  library older than the export is refused for lacking it. A stand-in library
-  at a version no binding was written against, shared by the four suites,
-  holds each refusal. The C++ symbol casts go through one helper, so the FFI
-  loaders carry one suppression instead of four. The Go kernel stand-in
-  includes the header, so a signature that drifts from the kernel's stops
-  compiling; the C++ stand-in takes the backend's mirror, which the sanitizer
-  lane's function-type check holds it to, and its parameter-count override is
-  gone. Build and update now refuse a result buffer smaller than the DLC's byte
-  count before writing, and report the count they wrote; every
-  structure-taking entry refuses a NULL structure cleanly. The wire formats the
-  kernel writes are unchanged.
-
-- **BREAKING (C ABI 2): the two text entries take their text as a structure,
-  and read it as UTF-8 whatever the locale.** `aletheia_process` and
-  `aletheia_parse_decimal` take a `const struct aletheia_text *`, the text's
-  bytes and their count with no terminating NUL, where they took a
-  NUL-terminated string. The shim decoded a C
-  string with the calling process's locale and dropped what it could not
-  decode: under `LC_ALL=C` the decimal `1.5€` was read as `1.5` and a unit `°C`
-  came back as `C`, and under every locale a byte that is not UTF-8 was dropped,
-  so `1.5\xff` was read as 3/2. It now reads and answers UTF-8 whatever the
-  locale, and refuses the whole text, in the order the header states, when the
-  text is NULL, when its data is NULL under a non-zero size or its size is past
-  what the library can index, when its bytes are not UTF-8, and when they hold
-  a NUL: `aletheia_process` answers `ffi_validation_error`,
-  `aletheia_parse_decimal` `decimal_parse_failed` with an empty input echoed. A
-  NUL no longer ends a text early: Go and Python read `from_decimal("1\x00xyz")`
-  as 1, and the C++ and Python `process` cut a command at its NUL. The bindings
-  pass the text with its length and leave the NUL to the kernel, so Rust's
-  `Error::NulInString` is removed (BREAKING Rust). Each binding runs a child
-  process under `LC_ALL=C` that refuses `1.5€` and reads a `°C` unit back whole,
-  and a test holds the shim to taking nothing from `Foreign.C.String` but its
-  types.
+- **BREAKING (C ABI): the two text entries take a structure, read as UTF-8.**
+  Whatever the locale, `aletheia_process` and `aletheia_parse_decimal` refuse a
+  text not UTF-8 or with a NUL; `Error::NulInString` is gone (BREAKING Rust).
 
 - **BREAKING (Python): `aletheia.dbc` no longer exports
-  `dbc_and_warnings_from_response`.** The package's docstring said every name in
-  its `__all__` was also public at the top level, and that one name was not: it
-  is the helper the command line and the converter share to read a parse
-  response, and only the package and its tests called it. It stays in
-  `aletheia.dbc._converter`, and the top level now builds its `__all__` from
-  `aletheia.dbc.__all__` rather than spelling the names a second time, so the
-  two surfaces cannot drift apart again. The top-level surface is unchanged.
+  `dbc_and_warnings_from_response`.** It stays in `aletheia.dbc._converter`,
+  and the top-level surface is unchanged.
 
-- **`bytes_to_dlc` returns the factory's answer rather than dereferencing it.**
-  The dereference was a conversion the return type already performs, and it
-  put the one mutant of that line behind a library assertion: a mutated index
-  aborted inside `operator*` in some layouts of the binary and handed the tests
-  a wrong value in others, since the mutant adds two addresses whose low byte
-  the linker decides. The C++ unobserved ledger loses that row; every layout
-  now ends the mutant on a test's own assertion.
+- **BREAKING (C++): a check always carries its formula.** `to_formula()` and
+  `CheckResult::formula()` return a formula rather than an optional of it.
 
-- **BREAKING (C++): a check always carries its formula.** `CheckResult::formula()`
-  returns the formula itself rather than an optional of it, and `to_formula()`
-  a formula rather than an optional: every constructor set it, so the empty
-  case was a branch no call could take, and the guards on it were mutants no
-  test could kill. `add_checks` copies each check's formula without a refusal
-  it could not reach.
+- **A C++ DBC workbook's message id past sixteen bits is refused (BREAKING).**
+  An id of 65536 or more was read as its low sixteen bits; a workbook's DLC is
+  refused the same way.
 
-- **The survivors the widened mutator set found are worked down.** The
-  logger's own `enabled` is the one gate on a log event, so the guards around
-  every call site went, measured at no cost on the C++ throughput benchmark.
-  The loaders' condition words dispatch through one table lookup per
-  dispatcher, with one refusal each; the renderer resolves its three kernel
-  entries in one loop with one refusal; a standard CAN id and a DLC read from
-  JSON or a workbook reach their factories' refusals, with a value the
-  factory's argument cannot hold refused before the narrowing; a decimal
-  response with any `status` is the error envelope, since a success carries
-  none; `Rational`'s integral pairs narrow into one constructor; the UTF-8
-  lead byte names its length and bits or nothing; an enriched reason is the
-  rendered one or the formula's, with no flag between; the stand-in kernel
-  counts its closes. Every remaining guard has a test feeding the input that
-  fires it, asserting the refusal's own wording.
+- **The dependency and licence ledger is a section of the Building Guide.** It
+  replaces `DEPENDENCIES.md`, naming each dependency's licence and each layer's
+  pins by their build file, miniz and pugixml included.
 
-- **The mutation lanes make the mutants they refused.** For each lane, the
-  constructs its tool refused were counted from the tree and each lifted or
-  justified. C++: Mull's two call mutators refused every call through a function
-  pointer as indirect, and the backend calls every kernel entry through one, so
-  no mutant ever dropped a kernel call or made the kernel answer something else;
-  libirm now reaches them (`tools/mull/libirm-call-replacement-indirect.patch`,
-  `tools/mull/libirm-void-call-indirect.patch`). The scalar replacement's
-  constant truncates to false on a call returning `bool`, so every guard was
-  tested for not firing alone; `cxx_replace_bool_call_true` is the other answer.
-  A pointer-returning call had no replacement at all;
-  `cxx_replace_pointer_call_null` answers it with null, made only where null is
-  an answer the caller reads, a call through a function pointer or a result
-  compared with null, since a string's data or an exception's message never
-  answers null (`tools/mull/mull-call-replacement-kinds.patch`, both sides).
-  `cpp/mull.yml` names the decrement, assignment, bitwise and negation groups
-  beside `cxx_default`, which leaves them out, and names the assignment group by
-  its members so the address tree can drop the constant stores alone, a
-  sanitizer writing stores of its own at a statement's location as it inserts
-  calls. Go: the six mutators gremlins ships off by default are on in
-  `go/.gremlins.yaml`. Python: mutmut's operator table is fixed, and what it
-  cannot mutate is not counted as swept. Each lift is swept and the baselines
-  re-taken. The widened set also found a test that waited with no deadline for a
-  backend call the client had refused, holding the process open past the run's
-  end under the mutant; the wait now has one and the test fails fast.
+- **The Go guide names the panic the package keeps for itself.** Unlocking a
+  lock nobody holds, which only a defect inside the package can cause, panics
+  rather than leaving a later caller waiting.
 
-- **The FFI-name gate refuses a name it cannot read.** A wrapper that spells an
-  export only inside a comment, or a MAlonzo module that lost the definition,
-  used to warn and pass; each is now a build error. The shim's own call to
-  `parseDecimal` is glued to a parenthesis, so a regression of the extractor to
-  word-start matching would have warned once and shipped. The fix hint names the
-  file the gate read rather than the shim's path.
+- **The C++ Excel loader refuses a stored integer with a plus sign (BREAKING).**
+  It also finds a value element only as a bare `<v>`, not one with attributes.
 
-- **The dependency and licence ledger is a section of the Building Guide.**
-  `DEPENDENCIES.md` is gone: its ledger lives under
-  `docs/development/BUILDING.md § Dependencies and Licenses`, next to the
-  prerequisites that install what it lists, and the index and the Distribution
-  Guide link there. The ledger names each dependency and its licence and points
-  at the build file that pins its version instead of repeating the number: every
-  version column had rotted (the C++ pins, the setuptools floor, the GHC
-  packages), and miniz and pugixml, which CMake fetches with OpenXLSX, were
-  unlisted. The Building Guide itself was reviewed whole: one owner per fact
-  (the venv setup, the build timings, the compiler line and the GMP install
-  each appeared in three or more places), a Rust prerequisite and test line,
-  `ALETHEIA_LIB` for the tests, and the stale entries gone (a `version` field
-  `aletheia.agda-lib` no longer has, a `Dockerfile` the tree no longer
-  carries, an FFI export named `aletheia_process_json`, build times said to
-  live in the status document). The README's frame-tuple comment names the
-  tuple's `timestamp` field, its exit-code line says an unresolved check
-  exits 0, and it shows the `--excel` path and the loaders' extras.
+- **The supported C++ toolchain is Clang 23.** The workflows, the runtime
+  image's C++ build and the pip `clang-format` line move from 22 to 23; an older
+  Clang still configures, with a warning.
 
-- **The runner benchmark baseline is current, and the gate reads Rust.** The bar
-  `tools/benchmark_gate.py` held every pull request to dated from June and
-  predated the hot-path work since, so on the common runner class the streaming
-  lanes ran up to half again faster than it and a regression of that size would
-  have passed; it also carried no Rust column, the gate naming three bindings
-  where `benchmarks/run_all.sh` measures four. `benchmarks/gha_baseline.json` is
-  now a known-good pull-request run's own report, written through the gate's
-  bootstrap mode, from the CPU class seven of the last ten runs landed on, and
-  the gate compares the four languages `benchmarks/SCHEMA.yaml` names. A test
-  holds the baseline to that shape: every language, every throughput lane, a
-  positive number in each, since a lane the baseline lacks is one the gate skips
-  without a word. `docs/development/BENCHMARKS.md` states the runner classes and
-  the refresh procedure.
+- **BREAKING (Go): the backend interface takes one slice of injections.**
+  `BuildFrameBin` and `UpdateFrameBin` take it in place of a signal count and
+  three slices; a `SignalInjection` is a signal's position and exact value.
 
-- **The pre-commit IWYU check blocks, and it waits for the agda-tree lock.**
-  The hook installed by `tools/install_hooks.py` ran `tools/iwyu.py --check`
-  on the staged `.agda` files as an advisory, and read every non-zero exit as
-  findings. The tool also exits non-zero when it never ran, with the reason on
-  stderr and nothing on stdout, the agda-tree lock refusing a concurrent Agda
-  operation being the common case: a commit made while a sweep held the lock
-  (observed 2026-09-16, on two files the tool reports clean on their own) was
-  shown the "flagged imports" header over an empty report, never told why, and
-  let through. Imports in the Agda tree are to be clean, so the check is now a
-  gate: a finding refuses the commit with its report, and so does a run that
-  reached no verdict, whose own output the hook now leaves on the terminal
-  rather than capturing. The lock no longer refuses the hook: `tools/iwyu.py`
-  takes `--wait-lock`, under which the shared lock in `tools/_common.py` queues
-  behind the holder, naming its pid, instead of exiting, and the hook passes
-  it, so a commit during a proof sweep waits for the sweep. Every other Agda
-  tool keeps the refusal. Reinstall the hook with `python -m tools.install_hooks`
-  to pick the change up.
-
-- **The Go guide names the panic the package keeps for itself.** Its
-  error-handling section said the package never panics, but the client fails an
-  unlock of a lock nobody holds rather than turning the defect into a wait a
-  later caller inherits. The sentence now says what the code does: no call a
-  host can make panics, and the unlock of a lock nobody holds breaks an
-  invariant of the package's own unexported lock that only a defect inside it
-  can break, failing there the way `sync.Mutex` does. A test holds that fault to
-  its message on a bounded wait, so an unlock that blocks fails in seconds.
-
-- **The C++ mutation lanes' compiler caches are capped from a measurement.**
-  Each of the nine lanes keeps its own cache of its tree's objects, and the
-  cap every lane inherited would have let the nine together, on `main` and on
-  each open pull request's ref, outgrow the platform's ceiling on their own.
-  Each slice was built from cold into an empty cache: a leak slice holds about
-  27 MB, a plain slice about 28 MB and an address slice about 33 MB, the
-  sanitizer's instrumentation making the address objects the largest rather
-  than the smallest. The cap is sized from the slices' measured caches, which
-  the lane's comment states. Each lane also prints its cache's own statistics
-  before saving it, so the figures can be re-read from a run.
-
-- **The address legs' budget is read off their own run.** They shipped budgeted
-  at 75 minutes from a ratio measured locally, which scaled the sweep: the
-  address tree carries 310 mutants against the other trees' 1037, so its sweep
-  is the shortest, while a leg's wall is mostly the setup and the tree build
-  that every tree pays alike. Their first CI run measured 15.1, 11.0 and 14.5
-  minutes, against leak's 18.1, 14.3 and 24.1 and plain's 28.3, 28.2 and 33.6,
-  so the budget is the slowest leg plus the lane's cold-cache allowance, 48.4,
-  rounded up to 50. The leak and plain budgets are unchanged: this run sits
-  inside both.
-
-- **A third mutation tree, read by AddressSanitizer, and a merge that judges a
-  mutant only where a tree carried it.** The two trees swept until now read a
-  leak and an allocation that fails, and libstdc++'s debug mode under both
-  checks a container's own preconditions; none of them reads the lifetime of a
-  reference, so a mutant that leaves a value read after what held it has gone
-  was a mutant no instrument could kill. The lane now sweeps a third tree built
-  with `-DALETHEIA_SANITIZER=address`. That tree drops the two mutators over
-  calls: a sanitizer inserts its own checks at the source location of the
-  statement they guard, so a mutator over calls mutates those rather than the
-  program's own calls, which was measured at 1185 mutants against the 1037 the
-  other trees carry, 153 of them surviving, every one the removal of a check.
-  Without them the tree carries 310 mutants, every one an identifier the plain
-  tree also carries, none surviving, and it keeps what it is for: 21 of the 29
-  kills it alone reads are a flipped comparison that then reads memory the
-  program does not own. Because a tree that drops a mutator carries none of its
-  mutants, the merge now keeps a mutant a survivor where every tree *carrying
-  it* let it live: judging on the intersection alone would have read a mutant's
-  absence from one tree as a kill, which is the one direction a merge must not
-  invent. The census floor is per tree for the same reason, and
-  `docs/MUTATION_BENCH.yaml` records what each tree carries.
-
-- **One sweep of the mutation trees.** `tools/mutation_sweep_cache.py` runs the
-  sweep once and keys it on every file a sweep reads from the tree, or its
-  absence, and on the argv and the environment the lane sweeps with: each tree's
-  test binary and the test kernels built beside it, the runner's configuration,
-  the kernel library at every path in the tree the tests look for it, the
-  fixture a test reads, the sources the binary's mutants name, which the runner
-  copies into its report, the libraries the binary needs, which the runner looks
-  up by name in the directory it runs in, and every file the loader can open in
-  a directory of the tree that a loaded library searches. The lane and the cache
-  sweep under one environment of their own, built from the caller's search path
-  and temp directory with the locale pinned, so a caller's library override,
-  sanitizer options or locale no longer change what a sweep reports. Every tree
-  is stamped with the configuration it was built under, so the lane rebuilds a
-  tree whose configuration moved and the cache reports it rather than sweeping
-  it; a tree built before the stamps is rebuilt by the lane once, and refused by
-  the cache until then. A rebuilt tree or library, a library removed or an
-  edited source is swept again and an unchanged tree is served; a search path
-  the key cannot follow is reported and not swept, a sweep of a tree that
-  changed while it ran is not kept, a refresh replaces the kept sweep only with
-  a complete one, and filing a sweep removes the ones before it and any a dead
-  process left. The mutation lane now runs on a change to any module its harness
-  loads, and a test checks its list of them against what the harness imports.
-  The sweep runs on every CPU it was given but one, and on none it was not,
-  because the machine it runs on is somebody's to use while it does.
-
-- **The C++ mutation trees run libstdc++'s debug mode, and a kill by the
-  library's own check is its own route.** A mutant that skips a lookup's guard
-  reads past the map's end, and what it reads there is not reproducible: the
-  recorded census watched one such mutant's route move between two sweeps of the
-  pinned order, a garbage string's length deciding between a `bad_alloc` a test
-  caught and a signal. Every object of both mutation trees now compiles under
-  `_GLIBCXX_DEBUG`, so a read past a container's end or an out-of-range
-  subscript ends the run at that step, with the check's message, and two sweeps
-  of each tree read every mutant's route the same. The census reads such a kill
-  as `check`, apart from `fault`, which is now a bare signal, and the routes are
-  re-taken. The mutants no test observes by behaviour, killed in every lane by a
-  check or a signal, are a maintained ledger: 69 rows over 97 mutants under
-  `unobserved_ledger` in the C++ baseline, each a mutator, a file, the text of
-  its source line, the route and the invariant the check refused, because what
-  each changes, a guard for 90 of the 97 and the value an index is computed from
-  for the other seven, leads straight to an operation the language does not
-  define. The lane refuses a kill the ledger does not name and reports one it no
-  longer produces, as it does for survivors; and `tools/check_mutation_setup.py`
-  holds every row of both ledgers to a file and a line the tree still has, so a
-  rename or a reworded line fails in the always-on sweep instead of rotting
-  until someone sweeps. A row is keyed on the line's text rather than its
-  number, and records the refusal down to its invariant without the index and
-  size the check printed, since those come from the test data. The rows cross
-  the standard library version the lane is built against: measured between
-  libstdc++ 16 and the 15 the workflow installs, the debug-mode sentences are
-  identical, the assertions differ only in the header path and line a row does
-  not record, and each of the nine invariants recorded is present in both
-  versions. Measured over the unmutated suite, three runs each: the leak tree
-  2.1 s either way, the plain tree 3.6 s to 4.9 s. The cap per mutant is now on
-  the runner's command line, ten minutes: Mull's default is ten times the
-  unmutated run, and under debug mode the four mutants that let an oversized
-  input through to a parser run 65 to 79 s against baselines of 2 and 5 s, so
-  the default ended them where the tests would have. The configuration's
-  `timeout` key caps the runner's own runs of the unmutated binary, not a
-  mutant's, and now says so; it is raised to a minute, since Mull's default of
-  three seconds is under the plain tree's suite under debug mode. An
-  instrumenting sanitizer stays out of the trees, now by measurement: under
-  UBSan the plain tree carried 81 more mutants, each removing a check the
-  sanitizer had inserted at the site of a call the source wrote, and 87
-  survived.
-- **A test the mutated tree cannot satisfy fails the Python mutation lane, and
-  the static gate now says so.** mutmut copies `python/` alone into `mutants/`,
-  where `Path(__file__).resolve().parents[2]` stops at `python/` rather than the
-  repository root, so a test that reads the tree above it finds nothing there.
-  Several tests already read that way and skip; one that asserts instead fails
-  mutmut's baseline collection, which ends with zero mutants run and a lane that
-  reports as though it swept. `tools/check_mutation_setup.py` caught only the
-  neighbouring shape, a test importing the repo-root `tools` package, and now
-  refuses this one too: reading above `python/`, no way to skip, and no
-  `--ignore=` entry is a finding, with the remedy naming both answers.
-
-- **A mutation lane installs what its own sweep needs.** The runner already
-  scoped a pull request to the bindings whose directory its diff against `main`
-  touches, and skipped the rest unswept; every lane reached that decision
-  after installing GHC, cabal, Agda, the standard library, Go, gremlins,
-  clang-23, the LLVM development libraries, Mull and the FFI library, so eight
-  lanes paid a full toolchain each to learn they had nothing to do. Each lane
-  now asks `tools/mutation_scope.py` first, which answers from the runner's own
-  `bindings_in_scope` rather than reading the diff a second time, and every step
-  that installs a toolchain or moves a cache reads that answer. It is read as
-  `!= '0'`, so an answer that did not arrive installs. The sweep step itself is
-  never gated: the lane runs the runner, reports and uploads whatever its scope,
-  which is what keeps `mutation testing` reported by a job that ran. `setup-go`,
-  which ran in all eight lanes, now runs in the Go lane alone.
-
-- **A documentation change no longer starts the lanes it cannot move.**
-  `reproducible-build` and the stability bench are now in
-  `.github/workflows/pr-build-lanes.yml`, which carries `benchmark.yml`'s
-  documentation path filter, so a pull request touching only Markdown files and
-  `docs/` no longer builds the whole tree twice and benchmarks it to report a
-  figure that diff cannot move. They cannot carry the filter beside the mutation
-  lanes: a path filter is a property of a workflow and skips every job in it,
-  and `mutation testing` is the context the branch ruleset requires, which must
-  report on every pull request.
-  `python/tests/test_doc_only_path_exemption.py` holds every ignored-path list
-  in the tree to one set, refuses a required context in a file carrying one, and
-  refuses an exempt lane outside one.
-
-- **The C++ mutation sweep runs in slices, behind a compiler cache keyed on
-  the plugin and the configuration.** Each mutation tree is now swept by three
-  CI legs rather than one: a leg builds the tree under a generated Mull
-  configuration that holds the other slices' files out, so it carries its own
-  slice's mutants alone (`ALETHEIA_MUTATION_CPP_STAGE` names the tree,
-  `ALETHEIA_MUTATION_CPP_SLICE` the slice), and the `mutation cpp` job unions
-  each tree's slices before intersecting the trees. No list says which file is
-  in which slice: the set a slice can claim is every tracked file under
-  `cpp/src` and `cpp/include` that `cpp/mull.yml` does not already hold out,
-  and the partition is computed from it and balanced on the per-file counts
-  recorded in `docs/MUTATION_BENCH.yaml`. The slices state what they hold out
-  rather than what they claim, which decides how a mistake surfaces: a file no
-  slice claims is mutated by all of them, and the merge refuses the repeated
-  identifiers, where stating what a slice claims would drop that file and
-  report the smaller census as a clean sweep. The merge also refuses a union
-  below the recorded census, a census that grew being ordinary work. Measured
-  on the first sliced run, every cache cold: leak legs 11.3, 17.8 and 19.1
-  minutes against 40.4 for that tree as one leg, plain legs 22.1, 23.0 and
-  23.9 against 54.4, so the C++ half of the heavy lanes takes 23.9 minutes
-  where it took 54.4. It costs 117.3 runner minutes against 94.8, a quarter
-  more, because six legs each pay the setup two legs used to pay. Each tree's
-  slices union to its recorded 1037 mutants, the merged verdict kills all of
-  them, and the kill routes read exactly what the record holds. Every leg's
-  `timeout-minutes` is that run's slowest leg of its tree plus the measured
-  cost of a cold cache.
-- **A mutation build's objects are cached under the plugin's bytes and the
-  configuration's.** The build ran the compiler bare, because what its objects
-  hold is not all on the command line: the plugin is named there by path and
-  read by content, and the configuration naming the mutators and the held-out
-  paths is not named there at all. The launcher now runs the compiler through
-  `ccache` with both named as extra files to hash and the compiler hashed by
-  content, and `ALETHEIA_MULL_CONFIG` names that configuration for the
-  configure, the plugin and the cache alike. Measured on one tree: a cold
-  build takes 52s reading 204 misses of 205 cacheable calls, and the same tree
-  wiped and rebuilt takes 5s reading 204 hits of 204, with the rebuilt tree
-  carrying the recorded census unchanged. A slice's tree records the digest of
-  the configuration it was built under and is discarded when that differs,
-  because nothing in CMake knows an object depends on that file.
-
-- **The C++ mutation lane runs as legs and a merge, and every mutation budget
-  is read off a measurement.** Each leg is a CI lane of its own, reporting as
-  its own binding and judging no survivor, and the `mutation cpp` job merges
-  the legs' reports (`ALETHEIA_MUTATION_CPP_STAGE=merge`), refusing a leg that
-  is missing, doubled or from another commit; the required check reports the
-  lanes and the merge together. (What a leg covers is the entry above: one
-  tree at first, one slice of one tree now.) The lane's wall clock on the runner was
-  1h44m for the two trees in sequence, and the longer tree becomes the lane.
-  Every lane's `timeout-minutes` is now its slowest recorded wall clock plus
-  the measured cost of its caches missing, the arithmetic beside each in the
-  workflow, and every lane uploads its reports whatever ended it. The mutation
-  build compiles one unit per CPU it was given, bounded by a measured memory
-  cost, where it compiled one at a time and took 8 minutes of a leg. The C++ lane
-  and the report shapes moved out of `tools/mutation_run.py` into
-  `tools/mutation_cpp.py` and `tools/mutation_report.py`.
-- **A Python type hint carries the shape of the data, as faithfully as the
-  language allows.** `AGENTS/python.md` cat 8 refuses `dict[str, list[str]]`,
-  `tuple[str, int, str]` and their like where the function takes no arbitrary
-  string or mapping, and a `type` alias to `str` is only the first step: a
-  closed set of words is an enum or a `Literal`, a string with a rule is a
-  `NewType` minted by its checker, a composite a `NamedTuple`, an authored JSON
-  shape a `TypedDict`, a needed capability a `Protocol`. The two C++ ratchet
-  gates share `RowKey` and `RatchetRows` from `tools/_ratchet.py`, and the
-  changelog gate's `Category` enum, as the worked examples.
-- **The C++ mutation lane sweeps under a pinned test order, and its recorded
-  census is exact.** Catch2 shuffles its cases by default under a seed that
-  changes every run, and mull runs the test binary once per mutant, so the lane
-  read a different kill-route census every sweep: six orders of one tree read
-  the fault route at 93, 93, 96, 98, 99 and 101, while under the pinned order
-  two runs compared mutant for mutant moved nothing and three runs on an idle
-  machine agreed on every count. The baseline in `docs/MUTATION_BENCH.yaml`
-  carried a `kill_routes_margin` of 8 and a four-timeout tolerance to absorb
-  that spread, which was covering the shuffle rather than anything about the
-  code. The lane now hands the binary `-- --order decl`, and the recorded counts
-  are compared for equality with no tolerance at all. Measured over six orders
-  of 1037 mutants, no mutant's killed-or-survived verdict moves with the order.
-  The route is not asked to be order-independent and cannot be: a fault ends the
-  process, so the order decides which test reports before the run stops. One
-  mutant is the exception that proves the reading, `dlc_to_bytes` at the
-  `update_frame_bin` call site, whose corrupted length runs close to the cap of
-  ten times the unmutated baseline; an oversubscribed machine times it out where
-  an idle one reads the fault it dies by, so a sweep with any timeout is
-  reported as a census taken under load rather than absorbed into a tolerance.
-
-- **Loop over what the library can bound, not over a number we wrote.** Every counting
-  loop of `cpp/src` and `cpp/include` whose bound a view removes outright now carries the
-  view its shape calls for: `std::views::enumerate` where the body needs the position,
-  a `std::views::zip` over the signal resolution's input and the three arrays it fills,
-  sized from that input, `std::ranges::transform` for the RTS argument table,
-  `std::views::iota` for the spreadsheet's column and row domains, `std::views::chunk`
-  for a hex payload read two digits at a time, and a `std::span` cursor for the argument
-  parser, which consumes a flag's value from the front. `bytes_to_dlc` searches the DLC
-  table rather than counting to its last code, and that table is now one constant both
-  directions read. The binary decoders follow: the extraction segments are read as the
-  fixed-size records they hold with `std::views::chunk`, the reason offsets two entries at
-  a time with `std::views::slide`, which is both what bounds a reason and what says the
-  table is monotone, and each error record is zipped with its offset pair, so that loop
-  carries no index at all. The UTF-8 validator and the ZIP central directory keep their
-  cursors, because a step of a variable number of bytes is what they are, but each
-  consumes from the front of a `std::span` instead of comparing an offset against a
-  length, so neither can be written past its end. The end-of-central-directory scan reads
-  every position the record could start at as a `std::views::slide` window, reversed.
-  The suites follow the same rule: a position the body needs comes from
-  `std::views::enumerate`, two sequences compared come from `std::views::zip`, a fixed
-  stride from `std::views::stride`, a prefix of a buffer from `std::views::take`, which
-  clamps where a hand-written length did not, and a count with no position from
-  `std::views::repeat`. The two benchmark harnesses
-  follow as well, where a run repeated a fixed number of times is a `std::views::repeat`
-  and a frame numbered by its position a `std::views::iota`; measured before and after,
-  every lane moves less than the host's own variance, the largest of them a latency
-  median moving by one tick of the resolution it is reported at.
-  `docs/CPP_INDEX_LOOPS.yaml` loses the rows whose loops are gone, from 90 counting loops
-  to 8, and every one of those is a cursor rather than a counter: the walk over
-  variable-size ZIP directory entries, a find-driven replace, and the six of the parity
-  check's own comment and string scrubber. Measured against the same two mutation trees: the C++ surface
-  falls from 1133 mutants to 1037 with no survivor, and the mutants killed only by a
-  libstdc++ precondition rather than by a test from 132 to 91, the whole of that fall in
-  the files whose hand-written bounds the views replaced, the ZIP loader reaching none.
-  The two-digit read leans on the refusal of an odd digit count that precedes it, so the
-  CLI suite now holds that refusal.
-
-- **Every mutant the three lanes sweep is one the project can answer for.**
-  The C++ lane now keeps Mull's SQLite report of each tree and reads from it
-  what ended every run, a test's assertion, a leak, the kernel or a fault,
-  recording the counts beside the baseline; the test double under the
-  library's sources is held out of the C++ sweep, and the stringer outputs
-  out of the Go sweep, each a file no test written here can be the one to
-  kill a mutant in.
-
-- **The C++ mutation lane has no survivor.** The two call mutators now reach
-  a call that can throw (an `invoke` at the lane's `-O0`), which as shipped
-  neither did. Every mutant on a call the source writes is killed or gone: the
-  loaders' guards by a document missing each key it reads, the capacity hints
-  and the ack fast path by allocation counts, the event timestamps and bus
-  bits by a kernel stand-in that refuses every call quoting what it was
-  handed, the library search and the renderer's load by taking their inputs,
-  the two archive reads by one positioned reader, and the serializer's check
-  of a denominator the type cannot produce by its removal, and the Excel cell
-  readers' lookup guard, whose removal read a row past its end and passed by
-  luck, has one owner as the YAML readers' has. The temporaries the code made
-  for nothing are gone with their destructors: a container fills in
-  place from the arguments, a string is read into its slot, and the template
-  writer holds one workbook handle and each sheet's name once. The
-  allocation-fault sweeps reach the loaders whole, finding a call's own
-  allocations by one recorded run so a vendored library's are never failed.
-  The implicit destructors the compiler emits for the temporaries the language
-  mandates, each moved from before it runs, are a mutator of their own that
-  the swept set leaves out, since no defect in the project can change what
-  their removal does. The surface reads 1140 mutants and 0 survivors.
-
-- **The C++ mutation lane's survivors are worked down to a ledger, read by two
-  instruments.** The lane sweeps two trees and counts a mutant as a survivor
-  only where both let it survive: one built under LeakSanitizer, where a
-  removed destructor leaks what the object owned and the run fails, and one
-  built plain, which carries allocation-fault sweeps that fail a chosen
-  allocation of a call and read back the count of blocks the program holds, so
-  the cleanup a container runs while its growth throws is entered and anything
-  it drops is seen. A sanitizer runtime defines the allocation functions those
-  sweeps replace, which is why the two cannot be one binary. Mull is patched
-  (`tools/mull/mull-unique-mutant-ids.patch`) to give every mutant an
-  identifier of its own, where it named two mutations of one statement, or of
-  two instantiations of one template, by one name and ran only the last it
-  registered; each clone now runs and is reported on its own, which is what
-  put the work below on the surface. Over both lanes: 971 mutants, 903 killed,
-  68 surviving across 29 ledger rows.
-
-  Every survivor class was answered in turn: every client method's
-  cancellation guard, the extended bit of a CAN ID on every path it crosses,
-  the wire-reason UTF-8 validator at every boundary it draws, the binary
-  extraction decoder's bounds and messages, the client's state transitions,
-  every log event by its level and fields, the value-level guards, the JSON
-  and YAML parsers at shapes no test sent, the loader helpers at every bound
-  and archive edge, the Excel loader's edges, the FFI backend's guards on its
-  own interface, and then, once the identifiers separated them, every
-  instantiation the suites had reached in only one of its forms: the formula
-  depth bound through every operator, the rational's non-positive denominator
-  through every integral width and signedness, the stale-index guard of every
-  lookup at the count, an integer field at the unsigned 64-bit maximum, a zero
-  multiplex value, and the injection block's width check as a pure function
-  held at the wire's width.
-
-  Survivors that were equivalent by construction are gone from the code rather
-  than justified beside it: every `reserve` on a cold path of a size the loop
-  then fills, with the frame resolver sizing its three arrays once instead,
-  while the binary decoder's reservations stay on its hot path and are held by
-  an allocation count; the cache keys'
-  hash, now held by tests of its distinctness and its mixing; the decoder's two
-  per-record bounds checks the exact-size check already covers; the empty-slice
-  guard before a copy, which a transform over the slice needs no more; the
-  archive walker's saturating sum, which 32-bit sizes cannot reach; the
-  client's second clearing of its last frames at the start of a stream, the one
-  at its end being the one a test can see; the tracking guard on frames sent
-  without properties; the Excel row map's skip of unnamed columns, which no
-  field reads; and the two emptiness checks in front of the library search,
-  since a path that is empty is a path that does not exist. Dead code found on
-  the way goes: the Excel loader read a stored value through a scanner with
-  branches for tag shapes the value element never takes, and now reads its one
-  tag; a stored integer's optional plus sign, which no workbook writes, is no
-  longer accepted as a plain integer; the four cell getters, the presence check
-  and the message-id parser drop clauses the row map already guarantees; the
-  JSON command bound moves into the pure-logic unit where a unit test holds it;
-  the serializer's INT64_MIN guard keeps the numerator only; the YAML root
-  check and two enrichment guards lose a clause their neighbour already covers.
-
-  What is left is recorded in the baseline as a ledger of mutator, file, source
-  line and multiplicity, and the lane refuses a survivor the ledger does not
-  name even at an unchanged count, so a survivor cannot be traded for another
-  unseen.
-- **A Go mutant that leaves a lock held fails the suite instead of running out
-  the clock.** Four mutants of the client's lock ran to the mutation runner's
-  timeout rather than to a failure. Unlocking a lock nobody holds is now a
-  fault the client states, not a wait the next caller inherits, and every test
-  bounds what it waits on: the context of each call, the close in its cleanup,
-  the parked call of the cancellation gate and the channels it reads. A lock a
-  mutant leaves held fails the test in seconds.
-- **The supported C++ toolchain is Clang 23.** Every site that installs,
-  invokes, caches or documents the compiler moves from 22 to 23: the five
-  workflows, the runtime image, the CI steps, the benchmark runner, the pinned
-  pip `clang-format`, and the policy line in `cpp/CMakeLists.txt`. The mutation
-  lane moves with it: Mull 0.34.1 stops at LLVM 22, so `tools/build_mull.sh`
-  builds it from source with the two-line patch LLVM 23 needs and is the one
-  recipe the workflow and the documents call. clang-tidy 23 retires the `hicpp`
-  module and adds checks the sources now satisfy: `const` on every value that is
-  never written, no empty parameter list on a lambda, and the single-character
-  overloads of the string members; `readability-trailing-comma` is disabled,
-  because clang-format answers a trailing comma by breaking the list one element
-  per line. A const-qualified `auto` is now spelled `auto const` everywhere, the
-  placement the C++ standard in `AGENTS/cpp.md` fixes. The
-  `check-clang-tidy-coverage` step runs in the C++ lane after the build that
-  writes the compile database it reads, instead of racing it.
-- **BREAKING (Go): the backend interface takes one slice of injections, not a count
-  and three arrays.** `BuildFrameBin` and `UpdateFrameBin` took a signal count beside
-  three slices of that length, so nothing carried the fact that the three agree and
-  the boundary checked it by hand. `SignalInjection` is a signal's position in its
-  message and the exact value to place there, and one slice of them carries the
-  property instead. The split into the three arrays the C entry point takes now lives
-  only in the file that talks to C. The interface is sealed, so the implementers are
-  the two build variants of the real backend, the mock and one test double. Measured
-  on the frame-building lanes, which gain one allocation set per call: about one point,
-  inside the noise floor.
-
-- **BREAKING (Go): the DBC records carry the vocabulary types the package defines.**
-  A signal's receivers, a message's additional senders, a node's own name, a value
-  description's signal name and the name on every comment and attribute target were
-  raw strings where `SignalName` and `NodeName` exist; fourteen fields across eleven
-  records carry their type now, and `NewDBCMessage` takes `[]NodeName`. The two
-  comment targets carry the identifier as `CANID` in place of a number beside a flag,
-  so the parse builds it through the constructor and refuses a value out of range for
-  its width: a comment can no longer name a message no frame could carry. Three names
-  stay strings because the package defines no type for them, and the four attribute
-  targets keep the number and the flag.
+- **BREAKING (Go): DBC records carry the vocabulary types the package defines.**
+  Fourteen fields are `SignalName` or `NodeName`; `NewDBCMessage` takes
+  `[]NodeName`; the message and signal comment targets' id is a `CANID`.
 
 - **BREAKING (Go): the shared check vocabulary carries the slots each obligation
-  reads.** `DispatchSimple` and `DispatchThen` take an interface the loader answers
-  for its own keys or columns, in place of eager rationals, and the four `IsSimple*`
-  predicates are one `IsSimpleCondition`. The two loaders decided a second time which
-  value slots an obligation reads, with a trailing branch that was the range
-  obligation, so a word the vocabulary gained and that branch did not was built as a
-  range check. The C++ and Python loaders had the same split and now read a slots
-  table of their own.
+  reads.** `DispatchSimple` and `DispatchThen` take an interface in place of
+  eager rationals; the four per-kind `IsSimple` predicates go.
 
-- **BREAKING (Go and C++): the command-line interfaces print one wording.** The
-  `mux-query` header carries the payload length in all three interfaces, a message
-  that is not multiplexed reads the same sentence everywhere, and the selector opens
-  with the two lines the reference documents. The Go selector was one line and is
-  now a header and a name per line. The C++ summary prints the signal names its
-  siblings print.
+- **BREAKING (Go and C++): the command-line interfaces print one wording.** This
+  changes `mux-query`'s header (payload length), not-multiplexed sentence and
+  selector (in Go a header, a name per line) and the C++ summary's signal names.
 
-- **A parent directory that cannot be looked at is no longer reported as absent.**
-  Before a template is written, the Go and C++ bindings turned every failure to stat
-  the parent into the same sentence. Both key on the errno now, as their own
-  input-path checks already did: a component too long to be a name, an unsearchable
-  parent or a descriptor limit says the stat failed. Python already distinguished
-  them, having no such check of its own.
+- **A parent directory that cannot be looked at is no longer reported absent.**
+  Before writing a template, the Go and C++ bindings now say the stat failed
+  for a name too long, an unsearchable parent or a descriptor limit.
 
-- **BREAKING (Go): the modules are named where the repository is, and each
-  path carries the release's major.** The core module is
-  `github.com/Jaetan/aletheia/go/v6`, the spreadsheet loader
-  `github.com/Jaetan/aletheia/go/excel/v6` and the command line
-  `github.com/Jaetan/aletheia/go/cmd/aletheia/v6`; every import moves with them. The
-  previous path named a location this repository does not publish from, so a
-  consumer typing it reached whatever is served there rather than this code. Go
-  accepts a major of two or more only when the path ends in the matching suffix. A
-  consumer of the distribution bundle follows the same printed recipe as before,
-  with the new path in it.
+- **BREAKING (Go): module paths name the repository and the release's major.**
+  `github.com/Jaetan/aletheia/go/v6`, `github.com/Jaetan/aletheia/go/excel/v6`
+  and `github.com/Jaetan/aletheia/go/cmd/aletheia/v6` are the new module paths.
 
-- **The Go and Rust predicate builders carry every predicate the kernel defines.**
-  Both carried the five comparisons, where the kernel has eight: `Signal(name)` in Go
-  gains `Between`, `ChangedBy` and `StableWithin`, and `Predicate` in Rust gains
-  `between`, `changed_by` and `stable_within`. Python and C++ already carried all
-  eight. A range whose minimum exceeds its maximum and a negative tolerance are
-  refused where the property is serialised, as before, that being the one place
-  every route to a predicate passes.
+- **The Go and Rust predicate builders carry every kernel predicate.** Go's
+  `Signal(name)` gains `Between`, `ChangedBy` and `StableWithin`, and Rust's
+  `Predicate` gains `between`, `changed_by` and `stable_within`.
 
-- **The benchmark runner tells every binding how much to warm before timing latency.**
-  The four harnesses default to 500 operations in Python and C++ and 2 in Go and Rust,
-  and the runner passed nothing, so the four committed latency baselines had each been
-  taken a different way. `run_all.sh` takes `--warmup`, defaulting to 500, and passes it
-  to all four lanes, and the four baselines are re-taken under it. BREAKING for a
-  caller who passed a flag to a mode that does not read it: the runner refuses it
-  now rather than measuring its default. Throughput reads both counts, latency
-  reads `--frames` as its operation count and `--warmup`, and scaling reads
-  `--runs`. The printed invocations and the benchmark workflow pass what their
-  mode reads.
+- **The benchmark runner warms every binding alike before timing latency.**
+  `run_all.sh` takes `--warmup` (default 500). BREAKING for a caller who passed
+  a flag to a mode that does not read it: the runner refuses it now.
 
-- **The Go mutation lane refuses a sweep that timed out instead of testing.** A mutant
-  the tool could not finish is neither killed nor lived, so a sweep that timed out on
-  nearly everything reported no survivors at full efficacy and passed the drift gate.
-  The baseline records a timeout ceiling and the lane refuses a run past it.
+- **The Python lint and test toolchain moves up.** `ruff` to the 0.17 line,
+  `pylint` to 4.1.4, `hypothesis` to 6.170.17, `setuptools` to 84.2.1; Python in
+  the READMEs of `python/`, `tools/` and `examples/` joins the format gate.
 
-- **The Python lint and test toolchain moves up a release.** `ruff` to the 0.16 line,
-  `pylint` to 4.0.7, `hypothesis` to 6.165.8 and the build's `setuptools` floor to 84.
-  Two of these have visible consequences rather than none. `ruff` 0.16 promotes
-  Markdown formatting out of preview, so Python code blocks inside `README.md` files
-  enter the format gate for the first time: four documents join it and two are
-  reformatted, which costs one example block its aligned trailing comments and gains
-  the doc examples the same formatting the rest of the tree is held to. `ruff` 0.16
-  also adds `RUF036`, which reads `None` in the middle of a union as a defect; the
-  `JSONValue` alias now ends with it, an ordering change and nothing else. `pylint`
-  4.0.7 and `hypothesis` 6.165.8 change no gate output, measured rather than assumed:
-  4.0.6 and 4.0.8 print the same messages and the same score, and the suite passes
-  unchanged. `mutmut` is excluded from automated bumps, because its baseline is a
-  measured mutant count that only a hand bump can re-measure.
+- **CI builds the C++ binding against libstdc++ 15 (BREAKING C++).** The shipped
+  C++ source needs it: libstdc++ 14, which Ubuntu 24.04 ships, has no
+  `vector::append_range`. The policy tracks the latest stable release.
 
-- **CI builds the C++ binding against libstdc++ 15.** ubuntu-24.04 ships 14,
-  which is why a standard C++23 construct compiled on a developer machine and
-  failed only on the runner. The toolchain policy tracks the latest stable
-  release rather than promising a floor, so the runners now take libstdc++ 15
-  from the toolchain PPA the same way they take clang-22 from apt.llvm.org:
-  seven install sites across five workflows, each with its .deb cache key bumped
-  so a cache filled without the new package cannot be reused. The release
-  image's C++ verify stage moves with them, or it would accept what the release
-  lane rejects; it takes the PPA as a deb line with the key fetched by
-  fingerprint, because the tool that adds a PPA is absent from that minimal
-  image. Nothing published embeds the library, because the bundle ships the C++
-  binding as source.
+- **Every dependency the C++ build fetches is pinned, transitively.** The zip
+  and XML projects the spreadsheet library fetches are declared in
+  `cpp/CMakeLists.txt` and pinned to release archives with measured hashes.
 
-- **Every dependency the C++ build fetches is pinned, transitively.** The bumped
-  spreadsheet library stopped vendoring its zip and XML implementations and
-  started fetching them itself, from a git tag and with no hash, so the pin
-  claim covered the four archives the build downloads and not the two further
-  projects one of them pulled in. Both are now declared in `cpp/CMakeLists.txt`
-  ahead of it and pinned to a release archive with a measured hash, at the
-  versions it asked for.
+- **The four C++ dependency pins move to their newest releases.** They are
+  nlohmann/json 3.12.0, yaml-cpp 0.9.0, OpenXLSX v0.5.1 and Catch2 3.16.0, and
+  the C++20 override the dependencies were built under is gone.
 
-- **The C++ benchmark sources are inside the lint gate too.** With the tests at zero the
-  two benchmark sources were the last C++ the repository compiles outside any gate, and
-  they reported 94 findings. All 94 are fixed and none is suppressed: no benchmark
-  configuration was needed, so `cpp/.clang-tidy` alone now covers both. The substantial
-  ones were the argument vector read as a raw pointer, four payload fixtures whose
-  constructors ran before `main` where a throw cannot be caught, eight helper structs
-  without internal linkage, three `using namespace` directives replaced by the
-  twenty-six declarations the harness actually uses, discarded results bound rather
-  than cast away, and three oversized functions split at their sweeps. One fix-it the
-  tool offered was rejected rather than applied: `boost-use-ranges` rewrote a fold to
-  `boost::accumulate` and added a Boost header to a source that then could not compile,
-  so that check and `llvm-use-ranges` are disabled for naming libraries the project does
-  not depend on, leaving `modernize-use-ranges` to ask for `std::ranges`. Measured A/B
-  against the pre-edit source on the same machine: the six throughput lanes move between
-  -2.8% and +5.3%, three up and three down, inside the platform's variance band.
+- **BREAKING (C++): `aletheia-cpp` ships as a shared library.** With it,
+  `find_package(aletheia-cpp)` gives the whole declared surface; a consumer that
+  linked the archive by path needs its directory on the run-time search path.
 
-- **The C++ test sources are inside the lint gate.** `run-clang-tidy-22` ran over
-  `cpp/src/` only, so 28 test sources, four test headers and four fuzz harnesses
-  were never linted and
-  five checks disabled in `cpp/.clang-tidy` carried reasons that named test code
-  while producing zero findings over the library. Those five now live in a new
-  `cpp/tests/.clang-tidy` that inherits the root configuration: three of the five,
-  alongside six more the tests earn, nine check names in all, each carrying the count
-  it was measured at and the reason it is inherent to Catch2 or to the documentation
-  harness. The other two measured zero once the sources were fixed and are gone. Everything else the gate
-  found in the tests was fixed rather than suppressed and no suppression comment was
-  added: helper functions and variables moved out of their anonymous namespaces to
-  match the project's `static` convention, the whole-file reader four executables had
-  each written for themselves became one header, discarded `[[nodiscard]]` returns
-  became assertions, bitwise work on signed operands became unsigned, two
-  `reinterpret_cast`s and a raw `execl` went away, and four over-long functions were
-  split at their setup. The coverage guard widened with the gate, so an unwired test
-  source fails CI instead of going unlinted; the four fuzz targets, which compile
-  only in the fuzz configuration, stay with the fuzz lane.
+- **BREAKING (C++): one search for `libaletheia-ffi.so`, published as
+  `aletheia::find_ffi_library()`.** The C++ command-line tool no longer falls
+  back to `/usr/local/lib`; set `$ALETHEIA_LIB` for a library installed there.
 
-- **CMake files are linted.** `.cmake-format.yaml` states the style these files
-  already follow, four-space indentation and a hundred-column line, the same
-  numbers the C++ format configuration sets; without it the linter reports every
-  deliberate line against its own defaults. The gate joins the pre-commit fast
-  tier and covers the C++ build file and the package config template.
-- **The four C++ dependency pins move to their newest releases**: nlohmann/json
-  3.11.3 to 3.12.0, yaml-cpp 0.8.0 to 0.9.0, OpenXLSX from a 2025 master commit
-  to its v0.5.1 release tag, and Catch2 3.7.1 to 3.16.0. Each was bumped and
-  measured on its own. The spreadsheet library now has release tags, so the pin
-  is a tag rather than a commit, and the comment saying its newest release was
-  from 2021 goes with it. The YAML library's 0.9.0 carries the missing-include
-  fix its 0.8.0 needed a C++20 override to work around, so that override is
-  gone and the dependencies build at the project's own standard.
-- **BREAKING (C++): `aletheia-cpp` ships as a shared library.** It was a static
-  archive whose yaml-cpp and OpenXLSX dependencies were linked privately behind
-  a build-interface guard and neither installed nor exported, so an installed
-  consumer could link a client-only program but not one that called either
-  loader: the archive referenced symbols nothing supplied. The shared library
-  carries those dependencies inside it and publishes only this project's own
-  symbols, so `find_package(aletheia-cpp)` now gives a consumer the whole
-  surface the installed headers declare. A consumer that linked the archive by
-  path needs its directory on the run-time search path.
-- **BREAKING (C++): the four places that looked for `libaletheia-ffi.so` are one
-  search, published as `aletheia::find_ffi_library()`.** They disagreed after
-  `$ALETHEIA_LIB`: the renderer consulted the path a `make_ffi_backend` call had
-  registered then three build directories furthest first, the command-line tool
-  tried the same three nearest first and was the only one that also looked in
-  `/usr/local/lib`, the throughput benchmark resolved relative to its own
-  executable, and the stability benchmark returned one path without checking it
-  exists. They now share the renderer's order, which is the one that consults
-  the registered path, so the renderer that formats values and the backend that
-  answers queries cannot load different builds. The visible change is that the
-  C++ command-line tool no longer falls back to `/usr/local/lib`; set
-  `$ALETHEIA_LIB` for a library installed there. The Go tool is unchanged.
-- **BREAKING (C++): `Rational::to_double()` is removed.** It was the one way to
-  take a lossy value out of an exact rational, and nothing in the library used
-  it: the sources mention it only to say the float principle bars it, and its
-  only callers were assertions in the integration suite, which now compare exact
-  rationals. The header proves the float principle at its constructor boundary,
-  and an accessor undid it. A caller who needs a floating-point value can still
-  divide the numerator by the denominator and own that decision.
-- **BREAKING (C++): node-valued DBC fields and message targets carry their
-  vocabulary types.** `DbcNode::name`, `DbcSignal::receivers`,
-  `DbcMessage::senders` and the node field of every comment and attribute target
-  are `NodeName` instead of `std::string`; the message targets of comments and
-  attributes carry a `CanId` instead of a raw 32-bit value beside a `bool
-  extended`, which is the pair the validated identifier exists to replace. The
-  header opened by saying the definition embeds the vocabulary types, and half
-  of them did not. One behaviour follows from the type: a target naming an
-  identifier too wide for the width it claims is now refused at the parse
-  boundary instead of being stored and passed on. The wire is unchanged, keys
-  and values both.
+- **BREAKING (C++): `Rational::to_double()` is removed.** A caller who needs a
+  floating-point value divides the unsigned numerator by the denominator and
+  negates it where `negative()` is true.
+
+- **BREAKING (C++): node-valued DBC fields and message targets are typed.** They
+  carry `NodeName` and `CanId`, not `std::string` and a raw identifier with an
+  `extended` flag.
+
 - **BREAKING (C++): `DbcDefinition::unresolved_value_descriptions` is renamed
-  `unresolved_value_descs`.** The kernel record's field, the wire key both the
-  parser and the serializer use, Python's field and Rust's field all carry the
-  record's abbreviation; the C++ member expanded it. The wire is unchanged: only
-  the C++ member name moves.
-- **`make_mock_backend()` now answers instead of refusing.** The factory handed
-  out the configurable test double with an empty response queue, so the first
-  call on it threw, and the method that fills the queue lives in a test-internal
-  header an installed consumer cannot include. It was a backend such a consumer
-  could never call, while three places described it as a canned-ack backend. It
-  now hands out a fixed backend that answers every operation with the wire's
-  acknowledgement and every frame request with a zero-filled payload of the size
-  asked for. The configurable double is unchanged and still refuses on an empty
-  queue, because a test that silently received a fabricated answer would pass
-  for the wrong reason.
-- **BREAKING (C++): the backend interface takes typed shapes for the session
-  state and the signal-injection block.** `IBackend::init()` now returns an
-  owning `BackendState` instead of a `void*`, every other method takes
-  `const BackendState&`, and the release primitive `close()` moved to the
-  protected section with `BackendState` as its only caller, so no call site
-  releases kernel state by hand. `SignalInjection` is no longer an aggregate of
-  a count and three raw pointers: it holds three `std::span`s and is reachable
-  only through `SignalInjection::create`, which refuses arrays that differ in
-  length and a length the wire's 32-bit count cannot carry. Both were shapes
-  whose invariants lived in a comment. In-tree implementers are updated; an
-  out-of-tree implementer of the interface must follow the signatures, and a
-  caller that built an injection block by hand now goes through the factory.
-  The wire is unchanged.
-- **Toolchain adopted: GHC 9.6.7 → 9.8.4, Cabal 3.12.1.0 → 3.16.1.0,
-  agda-stdlib v2.3 → v2.4.** The verified kernel, all proof gates, and every
-  binding test pass unchanged on the new toolchain (agda-stdlib v2.4 lists no
-  non-backwards-compatible changes). The shipped `libaletheia-ffi.so` now links
-  the GHC 9.8.4 runtime (base 4.19.2.0, text 2.1.1, containers 0.6.8,
-  bytestring 0.12.1.0, and siblings — see [BUILDING.md § Dependencies and Licenses](docs/development/BUILDING.md#dependencies-and-licenses)).
-  No public API or wire-format change. Two stdlib-2.4 fold-ins: the
-  `_×-dec_` → `_×?_` deprecation fixed in the mux well-formedness checker, and
-  the ℚ `_<ℚ₀_` comparator simplified onto the new `Data.Rational._<ᵇ_`
-  primitive.
-- **Docker base images bumped to the latest stable releases**: the verify-stage
-  images `golang:1.25` → `1.26` and `rust:1.93` → `1.97`, plus a digest refresh
-  of the `python:3.14-slim` runtime base — matching the toolchain-support policy.
-- **`shake install` now purges stale shared libraries before re-staging**, so a
-  GHC toolchain bump no longer leaves the prior runtime's `libHS*.so` orphaned
-  in the install prefix.
+  `unresolved_value_descs`.** The wire is unchanged; only the C++ member moves.
+
+- **`make_mock_backend()` now answers instead of refusing.** Every text endpoint
+  answers `{"status":"ack"}` and every frame request a zero-filled payload of
+  the size asked for; a client takes the ack where it awaits that reply.
+
+- **BREAKING (C++): the backend interface takes typed shapes.** Implementers use
+  `BackendState` where `void*` was, `close()` is protected, and a caller builds
+  an injection block through `SignalInjection::create`, which checks lengths.
+
+- **The toolchain moves to GHC 9.12.2, Cabal 3.16.1.0, Agda 2.9.0 and
+  agda-stdlib v2.4.1.** The shipped `libaletheia-ffi.so` links the GHC 9.12.2
+  runtime.
+
+- **Docker base images move to the latest stable releases.** The verify stages
+  move from `golang:1.25` to `1.27` and `rust:1.93` to `1.100`; the runtime base
+  `python:3.14-slim` has a refreshed digest.
+
+- **`shake install` purges stale shared libraries before re-staging.** A GHC
+  toolchain bump no longer leaves the prior runtime's `libHS*.so` orphaned in
+  the install prefix.
 
 ### Fixed
 
-- **The Excel module resolves outside the Go workspace.** It required the core
-  module at a version only the repository's `go/go.work` resolved: the
-  placeholder `v0.0.0` in 5.0.0, then `v5.0.0`, which Go looks for as the tag
-  `go/v5.0.0`, and no such tag exists. Resolving the module on its own failed,
-  `go list -m all` outside the repository and Dependabot's Go updates among
-  them. It now requires the core at the pseudo-version of a commit on main,
-  which GitHub serves.
+- **The Excel module resolves outside the Go workspace.** It requires the core
+  module at a version GitHub serves, so `go list -m all` outside the repository
+  no longer fails.
 
-- **The Python CLI refuses a report cut short when it writes unbuffered.**
-  Run with `python -u` or `PYTHONUNBUFFERED` set, its standard output writes
-  straight to the descriptor, and the bytes a short write left (a report
-  reaching a file's size limit) were dropped with no error: the report was cut
-  and the CLI exited 0. The rest of a short write is now written again, so the
-  write the descriptor refuses is refused as it is buffered, exit 2 with
-  `writing the report: File too large`. The parity harness runs every scenario
-  whose standard output refuses a write on the Python CLI unbuffered too.
+- **The Python CLI refuses a report cut short when it writes unbuffered
+  (BREAKING).** Under `python -u` or `PYTHONUNBUFFERED`, a report reaching a
+  file's size limit exits 2 instead of 0 with a cut report.
 
-- **A validation refusal is built in time linear in its issues.** The
-  `handler_validation_failed` message joins every error issue's detail; the
-  join copied the text joined so far at every step, so a DBC whose messages
-  each carry hundreds of overlap issues was refused in time and memory growing
-  with the square of the issue count (measured: ×3.5 to ×4.0 allocated bytes
-  per doubling of the issues, 20.9 GB at 20,400 issues, and 156 s for a
-  200-message DBC of 50 overlapping signals each). The join now writes its
-  characters once, and a Python gate holds a refusal's allocation to the
-  load-scaling factor per doubling of its issues.
+- **A validation refusal is built in time linear in its issues.** Building the
+  `handler_validation_failed` message no longer takes time and memory growing
+  with the square of the issue count.
 
-- **A DBC text holding one long number is refused, and the process that sent
-  it lives; every number in a DBC is held to the rational-component bound on
-  both load routes (BREAKING).** A `VAL_` key, a signal factor or any other
-  number in a DBC text was folded into an integer before any bound looked at
-  it, so a key of 100,000 digits ended the host process with the kernel's heap,
-  and the parse of a literal cost time quadratic in its length: 6.067 s at
-  100,000 digits on the text route, 0.335 s on the JSON route. One literal core
-  now serves both grammars: it strips the significand's zeros, folds the digits
-  only when the value fits, and holds a literal whose reduced component is at
-  least 2^64 as that component exactly 2^64, which the bound check after the
-  parse refuses as `at least 18446744073709551615`; a JSON exponent is compared
-  by digit count before it is folded. The load-time walk that bounds a DBC's
-  counts and texts decides every number's reduced components too, on both
-  routes, refusing the first past 9223372036854775807 naming its field
-  (`signal factor`, `value description key`, …), so a DBC text that loaded
-  with a number past the bound is refused at load. Reading a literal is linear:
-  0.128 s at 100,000 digits on the text route and 0.072 s on the JSON route.
-  Proven in Agda: the core reads every literal within the bound exactly and
-  holds only a literal with a component of at least 2^64
-  (`Aletheia.DBC.DecRat.Literal.Properties`), and the well-formedness class the
-  DBC round-trip theorem assumes includes the bound every loaded DBC carries. Each binding holds
-  the long text's refusal with a test that sends it from a child process.
+- **Every number in a DBC is held to a bound on both load routes (BREAKING).**
+  A reduced component past 2^128 - 1, or an INT, HEX or ENUM attribute value
+  past 2^63 - 1, is refused; a long number no longer ends the host process.
 
-- **A long JSON number in a command is refused, and the process that sent it
-  lives; a bound refusal's `observed` stops at 2^64 - 1 (BREAKING).** The
-  refusal of a JSON number past the rational-component bound echoed its
-  magnitude whole, in `observed` and in the message, and rendering a number of
-  100,001 digits exhausted the kernel's heap and ended the host process: a
-  command of about 100 KB was enough. Every bound refusal now reports the
-  measured value up to 18446744073709551615, the top of the unsigned 64-bit
-  range, and that value past it, the message printing `at least
-  18446744073709551615`; a refusal of `1e30000` shrinks from 60,221 bytes to
-  268. `Aletheia.Protocol.ResponseFormat.Properties` proves every `observed` an
-  error reply writes is at most the ceiling, exact below it. Each binding
-  holds the long command's refusal with a test that sends it from a child
-  process.
+- **A bound refusal's `observed` stops at 2^128 - 1 (BREAKING).** A long JSON
+  number in a command is refused and the process that sent it lives; past that
+  ceiling the message names the limit alone.
 
-- **The Python binding answers a JSON reply it cannot read with `ProtocolError`.**
-  A JSON reply from the kernel that is not UTF-8, holds an integer longer than
-  CPython converts (4300 digits by default) or nests deeper than the JSON
-  decoder's stack holds raised `UnicodeDecodeError`, `ValueError` or
-  `RecursionError` from the call that read it; each now raises `ProtocolError`
-  with the decoder's reason, as a reply that is not JSON already did.
+- **The Python binding raises `ProtocolError` for a JSON reply it cannot read
+  (BREAKING).** It carries the decoder's reason, replacing `UnicodeDecodeError`,
+  `ValueError` and `RecursionError`.
 
-- **The Go, C++ and Python CLIs refuse alike what they used to drop.** A
-  positional a subcommand does not take is refused before any DBC is read, with
-  exit code 2 and, when nothing else is missing, `unrecognized arguments: <the
-  positionals>`: the Go CLI ignored one given to `validate`, `signals` or
-  `format-dbc` together with every flag written after it, and the C++ CLI
-  ignored the positional itself; both now name an extra one on `extract`,
-  `mux-query` or `template` as the Python CLI does, too few keeping each
-  command's `requires` line. A bare `--` ends the flags in all three, every
-  token after it a positional: the Go CLI's `extract` and `mux-query` dropped it
-  and went on reading flags, the C++ CLI refused it as an unknown flag, and the
-  Python CLI refused it as an unrecognized argument on a subcommand that takes
-  no positional and ran a subcommand written after a leading `--`. A report that
-  cannot be written, text or JSON, exits 2 with `writing the report: <the
-  system's message>` in all three, the message the C library gives where the Go
-  CLI spelled the error its own way: on a full device, where the Go CLI's text
-  reports other than `template`'s and every C++ report exited as if written and
-  the Python CLI exited 120 with the interpreter's warning, or 2 with the bare
-  errno when one write outgrew its buffer; on a pipe whose reader is gone, which
-  killed the Go CLI and the C++ `template` by SIGPIPE; past a file-size limit,
-  which killed the C++ CLI by SIGXFSZ; and on a standard output closed at start,
-  which the Go runtime put on /dev/null (exit 0), the C++ CLI handed to the next
-  file it opened, and the Python CLI crashed on with exit 1. The Go CLI finds
-  the kernel when run from `go/cmd/aletheia`, where its candidate named
-  `go/build`, and the CLI reference's Go line, which set `ALETHEIA_LIB` to a
-  path missing from `go/`, runs as written. `docs/CLI_SCENARIOS.yaml` holds each
-  refusal for the three CLIs, a scenario now able to give the run a full device,
-  a closed standard output, a pipe with no reader or a file under a size limit
-  as its standard output.
+- **The Go, C++ and Python CLIs refuse what they used to drop (BREAKING).**
+  An extra positional exits 2, a bare `--` ends the flags, and a report that
+  cannot be written exits 2.
 
-- **The release bundle carries the license text of every library it ships.**
-  The bundle's `lib/` ships the kernel library, into which Agda compiles its
-  runtime support and the Agda standard library, and beside it the GHC
-  runtime's libraries and libffi. Their licenses ask that their notices travel
-  with a binary, and the bundle carried only Aletheia's `LICENSE.md`. Its
-  `licenses/` folder now holds one folder per work, `<name>-<version>`: Agda's
-  and the standard library's for the kernel, each GHC package's own, GHC's for
-  the runtime system, libffi's, and, the obligation being transitive, the
-  license of each work whose code is compiled into one of them (xxHash, LLVM's
-  ELF relocation tables and musl's `strndup` in the runtime system; the
-  ucd2haskell Unicode tables, primitive, foldable1-classes-compat, singletons
-  and nhc98 in `base`, with a notice naming the functions `base` credits to
-  HBC, and the runtime system's own such notice; lens in `containers`;
-  cereal in `binary`; integer-gmp in `ghc-bignum`; filepath in
-  `template-haskell`; blaze-textual in `bytestring`). GHC's
-  install holds only GHC's own license (a copy in each package's
-  documentation directory), so the tree keeps the texts in
-  `packaging/licenses/`, recorded with their sources and hashes in
-  `sources.yaml`. `cabal run shake -- check-bundle-licences`, run with the
-  proof gates, fails when the kept texts disagree with the libraries the
-  bundle carries, with their record, or with the GHC, Agda or Agda library
-  the kernel is built with, and the dist rule refuses a staged bundle in which
-  a library lacks its license. `tools/licence_audit.py` reads the source
-  tarballs for the works a library takes code from, holding each license
-  notice and each line saying in a wording it knows where code came from to
-  a verdict in `audit.yaml`; it runs on a pull request that changes the
-  texts, the tools or its workflow, and weekly, the check holds the verdicts
-  to the record without a download, and a GHC bump also reads the sources'
-  diff for wordings the scan does not know. The `.deb`, `.rpm` and image
-  carry the folder, the bundle being their payload. The image also carries
-  the notices of the software its CPython compiles in (mimalloc, libmpdec,
-  expat, HACL* and more), which CPython's `LICENSE.txt` omits, and its build
-  refuses an image in which a Debian package, a Python distribution or a
-  package it vendors, or CPython lacks its license text.
-  Each binding's source, and so the Python wheel, carries `LICENSE.md`; the
-  wheel's `License ::` classifier, which its PEP 639 license expression
-  supersedes, is gone, and `tools/run_ci.py` builds the wheel offline from
-  what the bundle stages, so an edit that breaks the package or drops its
-  license fails the local sweep too.
+- **The release bundle carries the license text of every library it ships.** Its
+  `licenses/` has one folder per work, with the texts of works compiled into it;
+  the `.deb`, `.rpm` and image carry it, bindings and the wheel `LICENSE.md`.
 
-- **The release's SBOM names each GHC runtime library at its version.** With
-  GHC 9.8, whose library file names carry a four-character unit hash
-  (`libHSbase-4.19.2.0-9f38-ghc9.8.4.so`), the hash was read into the version,
-  so the bill listed `base` at `4.19.2.0-9f38`; it now lists `4.19.2.0`.
-  Bundles built with GHC 9.6, v5.0.0's among them, name no hash and were
-  billed at their versions.
+- **The release's SBOM names each GHC runtime library at its version.** The unit
+  hash in a GHC library's file name is no longer read into its version; `rts`
+  keeps its way, `1.0.2_thr`.
 
-- **The determinism gate reads a Rust test module held in a file of its own.**
-  It read only inline `#[cfg(test)] mod` blocks; a sleep in such a file passed.
+- **`docs/guides/QUICKSTART.md` cites the building guide's Prerequisites section
+  by name.** The documentation gate now holds every section number cited beside
+  a link, in every document.
 
-- **The documentation and prose gates read Markdown as CommonMark does.** They
-  read documents with line patterns of their own, which misread fences, indented
-  code, code spans, links, headings, sections and tables where GitHub renders
-  otherwise, and could number a line wrongly. `tools/_markdown.py` is now the one
-  reader: each document is parsed once with markdown-it-py, CommonMark with
-  GitHub's tables and strikethrough, and the documentation gate's arms and the
-  refused-word, review-mark, fence-mark, runbook and changelog gates take their
-  structure from it. Links resolve as GitHub's relative URLs do, HTML anchors are
-  read as a browser reads tags, and the memory-citation gate no longer starts a
-  line at a form feed or U+2028.
+- **A C++ loader's refusal never reads a null from `dlerror`.** A symbol the
+  library lacks is refused by name with the loader's text, or a fixed phrase
+  where it holds none, instead of dying by a segmentation fault.
 
-- **The documentation gate names a tracked file the work tree lacks instead of
-  stopping.** A path git tracks and the work tree does not hold, deleted and not
-  yet staged, stopped the gate with a traceback: in its read of the Markdown
-  documents, and in the arms reading the Go fuzz targets and every workflow and
-  tool, the shim, the Shakefile, the C++ build file and every ignore file, the
-  Python manifest, and the benchmark schema, residency test and baselines. Every
-  read of a tracked file now goes through one read in
-  `tools/docs_arms/__init__.py`, which returns the file's bytes, or its text, or
-  the finding `<path>: could not be read, so <what goes unchecked>`, and a byte
-  that is not UTF-8 reads as U+FFFD in every source, the manifest, schema,
-  baselines and residency test among them. An arm needing a document the read
-  could not give said it was not tracked; every arm now words a file it needs
-  and has no text of one way, `<path>: not tracked, so ...` or `<path>: could
-  not be read, so ...`. An ignore file or a baseline the work tree lacks ends
-  its arm's comparison, since the rules or measurements left would answer for
-  the whole set; the ignore files are still asked as their bytes, so a carriage
-  return git keeps inside a line stays in it. `phase_word` reads every
-  document's word for the current phase when the pitch is untracked or unread,
-  where it stopped at the pitch, and `section_citations` reads a cited target
-  under the path git tracks, never a symlink's destination.
+- **Parsing a DBC takes time linear in its length, from JSON or text.** Each
+  element had cost time in the rest of the document. A text's `VAL_` lines and
+  attributes are still matched by scanning a list for each signal or attribute.
 
-- **clang-tidy runs with the jobs it was given, in the gate.** `run-clang-tidy`
-  sizes itself from `multiprocessing.cpu_count()`, the machine's count whatever
-  CPUs it was given: 24 under `taskset -c 0-19`, one job per file it lints up to
-  that. `tools/run_ci.py`'s clang-tidy step now passes `-j` with `cpu_budget()`,
-  the step budget iwyu takes. The lint command `AGENTS.md` and `AGENTS/cpp.md`
-  give is now the gate's own lane, `tools/run_ci.py --lanes cpp-lint`, not a
-  copy of its command.
+- **The Go serializer refuses an unset identifier rather than panicking
+  (BREAKING Go).** A nil `CANID` is a validation error naming the message or the
+  signal; a comment or attribute target left at zero was read as id 0.
 
-- **The documentation gate reads the links, citations and figures it misread,
-  and every recorded mutant of its arms is killed.** Of the 562 mutants recorded
-  over the gate's 16 arms, 86 survived the tests; each is now killed by a test,
-  or its site is gone: `tools/docs_arms/__init__.py` states that the root
-  arrives resolved and the documents in tracked order, so no arm resolves the
-  root or sorts the documents again. Writing those tests found arms wrong, each
-  now held by a test that failed first. `links` and `section_citations` read a
-  link within its paragraph, its text or title running onto the next line, a
-  blank line or fenced code ending it; a destination ends at a space, a tab or a
-  line break, a no-break space staying in it, and parentheses holding a
-  backtick, as a code span leaves them, make no link. `section_citations` holds
-  every section number beside a link, in its text and after it, and a `[`
-  earlier on the line no longer opens the link's text. `stated_measurements`
-  holds the standard-deviation bound true and tight at one decimal over the
-  numbers the baselines spell and names the bound the worst lane needs, reports
-  a missing latency baseline and an untracked residency test as what they are,
-  leaves out a row whose mean or spread is not finite or whose mean is not
-  positive, and reads a bound or figure with a stray dot as unstated rather than
-  stopping the gate. `retired_document` numbers a mention as `grep -n` does, in
-  time linear in the file. `one_line_paragraphs` and the shared heading reader
-  take a `#` run as a heading only before a space, a tab or the line's end.
-  `tools/check_test_determinism.py` reads a test's rows where Python's parser
-  does, so a U+2028 in a string or a carriage return in a child script no longer
-  stops the scan or hides a site; a t-string's text is blanked, and a script
-  built as a t-string is read as one built as an f-string is. The arm, gate and
-  determinism tests went from 364 to 560, and the arm tests start 49 processes,
-  all in `ignored_build_trees`, whose arm asks git.
+- **The Go decoder refuses a standard identifier past sixteen bits.** It kept
+  the low bits before; the kernel emits no such identifier, so only a malformed
+  reply reached it.
 
-- **A link to the repository root resolves.** The documentation gate took the
-  root, `[text](../)` from `docs/` or `[text](./)` at the top, for an untracked
-  path and reported the link broken.
+- **The `docs/reference/INTERFACES.md` streaming examples start their stream.**
+  The C++, Go and Python ones sent a frame first and got `stream not started`.
 
-- **`docs/guides/QUICKSTART.md` cites the building guide's Prerequisites
-  section by name.** It cited "§1 Prerequisites", and the building guide numbers
-  no section; the anchor resolved, the number named nothing. The documentation
-  gate now holds every section number cited beside a link, in every document.
+- **The demo-script test writes nothing under `examples/`.** A plain run of
+  `examples/demo/drive_log.py` checks `drive.log` and exits 1 on drift;
+  `--update` rewrites it.
 
-- **The sweep reads the tracked tree under `tools/`, not the directory whole.**
-  `tools/ci-output` keeps the gates' logs and the scratch scripts of
-  investigations, none of it a gate's source, and a reader took it for the tree:
-  basedpyright, handed the directory `tools` and reading no ignore list,
-  type-checked a kept helper script and failed the pre-push sweep. basedpyright
-  now excludes `tools/ci-output` in `python/pyproject.toml`, pinned by a test in
-  `python/tests/test_run_ci_runner.py`.
+- **A change to the C header alone reaches the library.** An edit to
+  `haskell-shim/include/aletheia.h` rebuilds every output built from it, so the
+  library no longer links the old ABI version and structure layouts.
 
-- **A C++ loader's refusal never reads a null from `dlerror`.** Both loaders,
-  the backend resolving the kernel's entries and the rational renderer resolving
-  its three, built their refusal by appending `dlerror()` to a string, and POSIX
-  lets `dlerror` answer null once its text has been read or when the loader set
-  none: the refusal then read a null and the process died by a segmentation
-  fault instead of refusing. The mutation lane's unobserved ledger had been
-  carrying the sites as kills by a fault, twenty-five mutants over the two
-  loaders, each the refusal path crashing rather than the guard it mutated being
-  unobservable. One helper now reads the loader for both
-  (`cpp/src/detail/dl_symbol.hpp`): a symbol the library lacks is refused by its
-  name with the loader's text, or a fixed phrase where the loader holds none;
-  the renderer, which checked `dlerror` where the backend checked the symbol,
-  reads it the backend's way. Three guards that reached a variant through
-  `std::get_if` and a null test (the batch a frame's response carries, a
-  signal's multiplexed presence, twice) ask the variant instead, so a guard read
-  backwards throws `std::bad_variant_access`, which a test reports, rather than
-  dereferencing null. `make_ffi_backend_from_env`'s success had no test and has
-  one; `BackendState`'s move is read by a test on the handles themselves. The
-  C++ record is re-taken: 1429 kills by a test, 15 by a standard-library check,
-  10 by a fault, 23 unobserved rows over 25 mutants, 4 survivors, 1460 mutants.
-
-- **A commit leaves the files it commits where they were.** The pre-commit hook
-  parked unstaged and untracked changes with a stash of the whole tree and
-  `--keep-index`, which checks every staged file out again, contents unchanged:
-  each commit moved every committed file's mtime to the commit's time (four
-  files at 13:09:15.67 for a commit at 13:09:15), and every consumer that reads
-  mtimes rebuilt from committed sources, ninja and CMake what depends on them.
-  The hook now records the parked paths in a stash entry it builds itself, from
-  trees written through private index files, with the parents `git stash pop`
-  reads, and shows the gates the staged content by writing the parked tracked
-  paths from the index tree and removing the untracked files; the repository's
-  index is never staged into and a file that is only staged is never written.
-  The entry's tree records the parked paths as they stand, so an unstaged
-  deletion of a staged-new file and a worktree copy put back to HEAD by hand,
-  which git's own stash tree loses, come back as they were; a file removed from
-  the index but kept on disk is committed as deleted and stays on disk, where
-  git's `stash push` over a pathspec stages it again. Every path the hook hands
-  git is read literally, so a name with a colon or a bracket is a name, never
-  pathspec magic or a pattern (an untracked `x[1].txt` once matched the tracked
-  `x1.txt` on the restore and removed it from the tree), a name that is not
-  UTF-8 is parked and comes back, and a nested repository stays where it is. A
-  parking step that fails refuses the commit and writes back what it parked; the
-  entry dropped is the hook's own, never the top of the stack; the commands
-  printed when a restore fails run as printed. Each holds a test, shown red
-  first.
-- **`benchmarks/run_all.sh` runs the Rust harness cargo built.** It ran the
-  binary in `rust/target` whatever `CARGO_TARGET_DIR` said, so with the variable
-  set the Rust lane measured an earlier build, or failed where there was none.
-  It now reads the variable, and builds the C++ harness in the tree
-  `ALETHEIA_BENCH_CPP_BUILD_DIR` names and the Go one at the path
-  `ALETHEIA_BENCH_GO_BIN` names, `cpp/build` and `go/benchmarks/benchmark`
-  otherwise, its refusal of a Debug tree naming the tree it read.
-- **Parsing a DBC takes time linear in its length.** Every route that loads a
-  DBC reads its JSON or its text through the parser combinators' `many`, which
-  measured the whole rest of the document each time it started (once per JSON
-  string, once per list) and walked what was left after every repetition to
-  check it had moved, so each element cost time proportional to what was left
-  of the document. `many` now recurses on the input list itself and stops when
-  an element parser succeeds without moving the position (`samePosᵇ`): every
-  character a parser consumes moves its position, which
-  `Aletheia.Parser.Position.Properties` proves. The JSON parser's nesting
-  recursion takes the same measure, the input list, instead of a counter set
-  to its length. `validateDBC` of 1,600 messages without signals took 195.6 s
-  and takes 0.34 s; `parseDBCText` of 1,600 messages of one signal each took
-  94.2 s and takes 2.6 s, most of it now in validation (one run each, same
-  machine); the answers are byte-identical. A response no longer copies
-  everything after an element once per element: `formatJSON` joins an array's
-  elements in pairs, then the pairs in pairs, so each character of n elements
-  is copied about log₂ n times. A streamed frame's response allocates 0.59%
-  (CAN 2.0B) and 0.39% (CAN-FD) fewer bytes than with the renderer it
-  replaces, on the same kernel, as the GHC runtime counts them.
-- **`--help` describes a tool rather than running it.** A runnable file that
-  read no argument took `--help`, or a mistyped flag, as nothing and did its
-  whole job: `python -m tools.mutation_run --help` started a mutation sweep of
-  every binding and `tools.install_hooks --help` installed the hooks, and
-  `tools.mutation_sweep_cache`, which read any argument but `--refresh` as
-  none, swept the C++ trees wherever no sweep of them was kept. Each such file
-  now parses its arguments with `argparse`, so `--help` prints its docstring
-  and an argument it does not know exits 2 before any work. `tools.iwyu`
-  parses its modes and scopes the same way: two modes, two scopes, files
-  beside `--all` or `--diff` and an unknown flag are refused, where it let one
-  of two modes or scopes win and ignored a flag it did not know, so a mistyped
-  `--check` ran the report that never fails.
-  `python/tests/test_runnable_files_parse_their_arguments.py` holds
-  every runnable file to this and names the ones that read their arguments
-  otherwise: the atheris fuzz harnesses, whose flags libFuzzer parses, and the
-  files that read them by position, where `--help` names nothing they can use.
-
-- **The docs run each tool as a module.** No file under `tools/` is
-  executable, so a doc command spelled `tools/run_ci.py` failed with
-  permission denied; every such command is now
-  `python/.venv/bin/python -m tools.<name>`. Two durations the sweep logs
-  contradict are gone: the always-on sweep was documented at 22-30 minutes
-  warm, where the passing full sweeps of 2026-09-21 to 2026-10-02 ran 149 to
-  608 s.
-
-- **The Go serializer refuses an unset identifier rather than panicking.** A
-  definition built by hand can leave a message's identifier, a comment or
-  attribute target's, or an unresolved value description's unset, a nil
-  `CANID`; serializing it dereferenced the nil and panicked. It is a
-  validation error, naming the message, or an unresolved value description's
-  signal, when the identifier is one of theirs.
-
-- **The Go decoder refuses a standard identifier past sixteen bits rather
-  than keeping its low bits.** A DBC message or an unresolved value
-  description whose standard identifier was 65541 decoded as identifier 5:
-  the conversion to the constructor's sixteen-bit argument dropped the high
-  bits before the eleven-bit check saw the value. Every identifier, payload
-  byte, multiplexor value and C `int` the binding narrows now goes through one
-  checked conversion, which refuses a value the conversion would change. The
-  kernel emits no such identifier, so only a malformed response reached it.
-
-- **The Go mutation lane counts a mutant killed only when a test fails on
-  it.** gremlins tests each mutant in a copy of the `go/` module alone, under
-  the system's temporary directory, where the package's tests found neither
-  the kernel nor the documents, corpus and C header they read from the
-  repository: the unmutated suite failed at its first test, every mutant read
-  as killed, and the recorded baseline, 751 killed and none alive, measured
-  nothing. The lane now sweeps a scratch copy of the whole tree, as the Rust
-  lane does, naming it to the tests as `ALETHEIA_REPO_ROOT` and the tree's
-  built kernel as `ALETHEIA_LIB`, and the loader's search scenario runs in a
-  directory laid out as a checkout. The baseline is re-taken from that sweep:
-  684 killed and 63 alive, the survivors not yet examined: each is a finding,
-  recorded as a row of a ledger the lane holds the run to, as the C++ and Rust
-  lanes are held. The enrichment's frame order is
-  tested on its comparator directly: through the merge alone, its kill
-  depended on the order a map yielded two keys in, and two sweeps of one tree
-  disagreed on it.
-
-- **The streaming example of `docs/reference/INTERFACES.md` sent a frame on a
-  stream it never started, in C++, Go and Python alike.** Each call answered
-  `stream not started`, and each example passed because it kept the answer
-  without reading it. The examples now open the stream first.
-- **The C++ mutation lane reads a failed test as the test's kill when Mull
-  kept none of its output.** Mull reads a test binary's output as UTF-8 and
-  keeps nothing of a stream holding a byte that is not, so a failure report
-  quoting raw input reached the kill-route census as an empty stdout, and the
-  census, which read the output alone, called the run a fault: the kill moved
-  from `test` to `fault` with nothing saying so, and the lane failed on
-  unobserved kills no one had recorded. The census now reads the exit status
-  Mull records beside the output, and Catch2's failure exit, 42, returned only
-  once an assertion failed and the run reached its end, is the test's kill
-  whatever was kept. `tools/mutation_routes.py` reads each run as a
-  `MutantRun`: its execution status, its exit status and both streams. Every
-  mutant of the recorded sweep reads the route it read before.
-
-- **The demo-script test writes nothing under `examples/`.** The test
-  runs every example as a script, and `examples/demo/drive_log.py` rewrote the
-  tracked `drive.log` on each run, so a change to its generators would have
-  replaced the shipped fixture during a test run instead of failing one. A
-  plain run of `drive_log.py` now checks the file and exits 1 on drift, and
-  `--update` rewrites it; the test refuses an example run that creates,
-  deletes or rewrites any file under `examples/`.
-
-- **A change to the C header alone reaches the library.** cabal recompiles a C
-  source only when the `.c` file changed and re-runs hsc2hs only when the
-  `.hsc` did, so an edit to `haskell-shim/include/aletheia.h` alone linked the
-  old ABI version and structure layouts, locally and from the build tree CI
-  restores. The Shakefile deletes every output built from the header when its
-  content changes, the `.cabal` lists the header so cabal re-runs, and
-  `tools/check_build_incremental.py` edits the header's ABI version and
-  requires the rebuilt library to answer it.
-
-- **The bundle validator compiles the C++ consumer on the CPUs it was given.**
-  It started one compile per CPU of the machine, so run under `taskset` or a
-  cgroup cpuset it ran them all at once on the few it had. It now counts with
-  `detect_cpus` in `tools/_resources.py`, which reads `os.process_cpu_count`,
-  the process's affinity, where `os.cpu_count` reads the machine.
-- **The Python CLI exits 2 with one `Error:` line on an operating-system error
-  and on a missing optional extra,** where it ended in a traceback: a directory
-  that cannot be written, a file that cannot be read, or an install without
-  the `[excel]`, `[yaml]` or `[can]` extra, the message naming the
-  `pip install` that brings it.
-- **The Rust mutation sweep never writes the tree.** The Rust lane ran
-  cargo-mutants in place in the tree, so for as long as a sweep ran a mutant sat
-  in `rust/src`, where a hook, a build or a commit reading the tree took it for
-  the source. `tools/_common.py` gains `scratch_worktree`, a detached worktree
-  of `HEAD` with the uncommitted diff applied, whose git commands run clear of
-  the variables a hook exports; the lane sweeps there.
-
-- **The two C micro-benchmarks call `aletheia_send_frame` at its real
-  signature.** `benchmarks/response_overhead_ffi.c` and
-  `benchmarks/vec_construction.c` declared the entry with the seven parameters
-  it had before the CAN-FD bus bits, so the kernel read the four bus-bit
-  arguments from stack slots the call never set. Both now include `aletheia.h`
-  and take the entry's type from its declaration.
-
-- **A prose gate that could not read a tracked file no longer passes the tree.**
-  The walk `tools/check_refused_words.py` and `tools/check_no_review_marks.py`
-  share skipped a tracked file whose read raised, so a file deleted from the
-  worktree but still in the index, or one the runner may not read, left either
-  gate passing a tree it had not read whole. The walk in `tools/_common.py` now
-  returns what it found and what it could not read together, every gate over it
-  names each unreadable file and exits 2, with 2 taking precedence over 1 as
-  `tools/check_no_memory_citations.py` already did, and that gate now runs on
-  the same walk rather than a louder copy of it. The walk catches `OSError`
-  alone: a replace-mode read decodes anything, and a path git lists carries no
-  NUL, so the `ValueError` arm guarded nothing.
-
-- **The pylint gate fails on any message, not on a rounded score.** The step
-  grepped pylint's output for a 10.00 score, and the score rounds a few messages
-  over the tree's statement count away: the tree carried eleven, two modules over
-  the 1000-line cap among them, and the gate read 10.00 and passed. The step now
-  takes pylint's exit status, and `python/pyproject.toml` sets `fail-on` to every
-  category, so any message makes it non-zero whatever the score threshold, and
-  scores one point per message, so the printed score reads what the run found.
-  The eleven are fixed, one approved `noqa` aside, rather than silenced:
-  `tools/mutation_cpp.py` gives its trees, legs and stage variables to
-  `tools/mutation_cpp_legs.py`, the validator tests split the frame-layout
-  checks into `test_dbc_validator_layout.py`, the two prose-scanning gates share
-  one tracked-tree walk and the two workflow gates one workflow locator in
-  `tools/_common.py`, `tools/run_ci.py` groups its three opt-in lanes, dropping
-  two helpers nothing called, and the top-level `aletheia` package re-exports
-  `aletheia.dbc` through one star import rather than a second copy of its
-  names.
-
-- **The C++ merge judges a mutant only a later tree carries.** The trees do not
-  all carry one surface, and `merge_elements` in `tools/mutation_cpp.py` copied
-  the first tree's Elements report and flipped its survivors where another tree
-  killed them, so a mutant absent from the first report was neither a survivor
-  nor a kill in the merged census while the kill-route census, which unions the
-  lanes, counted it. The merge now unions the reports, each mutant's row taken
-  from the first report carrying it and judged over every tree carrying it, so
-  the two censuses count the same survivors; a test hands the merge a surviving
-  mutant only a later tree carries.
-- **A killed CI sweep or reproducible-build gate stops the build it started.**
-  `tools/run_ci.py`'s steps and `tools/check_reproducible_build.py`'s `shake
-  clean` and `shake build` ran as plain children, so a sweep or gate killed
-  mid-build left the build running, holding Shake's lock against the next one.
-  Every step the scheduler in `tools/_scheduler.py` runs, and both commands of
-  each reproducible build, now run under `run_guarded`, which merges a command's
-  stderr into its stdout and gives the command no input, since a process group
-  that is not the terminal's foreground job stops when it reads the terminal. A
-  step in a group of its own no longer sees the Ctrl-C a terminal sends the
-  sweep, so the guard also watches a pipe the parallel scheduler closes whenever
-  it leaves, an interrupt included, which stops every running step before the
-  interrupt propagates. Tests cover the merged and the file output, the closed
-  input, the stop pipe, a step's stderr, the parallel sweep's descriptors and
-  the interrupted sweep.
-
-- **A killed staleness gate stops the build it started, and a held tree lock is
-  never called stale.** `tools/check_build_incremental.py` ran `cabal run shake
-  -- build` as a plain child, so a gate killed mid-build left the build running:
-  it kept Shake's lock and relinked the `.so` with the killed run's marker in
-  it. The build now runs under `run_guarded` in `tools/_common.py`, which starts
-  it through `tools/_guarded_run.py` in a process group of its own. The guard
-  holds the read end of a pipe only the gate writes to, reads end-of-file when
-  the gate closes it or dies however it dies, and then sends the group the
-  SIGINT a terminal's Ctrl-C would, on which Shake stops the agda it runs in a
-  group of its own; what is left once the command exits gets SIGKILL. A gate
-  SIGKILLed mid-build left no cabal, shake or agda behind and Shake's lock free
-  0.15s later, where before the build ran to the end. The Agda tree lock's
-  contention message read a held lock whose recorded pid had exited as `stale?`,
-  inviting a delete of a lock a live process holds; a held flock has a live
-  holder by construction, and the message now says so. Tests cover the killed
-  and the interrupted caller, a command that ignores the interrupt, a guard
-  outside a group of its own, the pipe's descriptors and both lock messages.
-
-- **A gate run by a hook in a linked worktree finds the worktree's root.** Git
-  exports `GIT_DIR` to a hook there, and with it set git takes the directory it
-  runs in as the work tree, so `git_toplevel` in `tools/_common.py`, which asks
-  from the `tools` directory, answered that directory, and the pre-commit hook's
-  SPDX gate failed with `LICENSE.md not found` on every commit made in a
-  worktree. The lookup now runs git without `GIT_DIR` or `GIT_WORK_TREE`, so the
-  root comes from the path asked about. A test sets each variable in turn.
+- **The Python CLI exits 2 with one `Error:` line instead of a traceback
+  (BREAKING).** It covers an operating-system error and a missing `[excel]`,
+  `[yaml]` or `[can]` extra, the message naming the `pip install` to run.
 
 - **The CAN-log reader's docstrings name the frame tuple's own fields.**
-  `load_can_log` and `iter_can_log` described their tuples as
-  `(timestamp_us, arbitration_id, ...)`, where `CANFrameTuple` names its
-  first two fields `timestamp` and `can_id`. Both docstrings now give the
-  tuple's field list, and a test holds each to `CANFrameTuple._fields`.
+  `load_can_log` and `iter_can_log` give the field list of `CANFrameTuple`,
+  whose first two fields are `timestamp` and `can_id`.
 
-- **A test run whose scratch directory a peer is sweeping waits for the peer
-  instead of giving up.** Each C++ test binary reaps the scratch directories of
-  dead runs before creating its own, and a killed run leaves one under a process
-  id a later run can reuse: that run then finds a peer removing its directory
-  between creating it and locking it. The fixture yielded 64 times and threw,
-  which outlasts an empty directory's removal and not a populated one's,
-  measured at about 45 ms for 20000 files, and the throw came out of a fixture
-  constructor, read under the mutation lane as a kill of whatever mutant was
-  running. The fixture now waits on the peer's lock, which the peer holds for
-  exactly the removal, and takes the directory afresh once it is gone; no
-  physical time enters. A suite case stages the peer as a thread of the same
-  process over a populated directory.
+- **`shake clean` removes the Agda interfaces.** It now removes `_build/` with
+  the rest, and the reproducible-build gate's second build type-checks the
+  runtime closure from cold.
 
-- **The pre-commit hook writes a file staged in part back whole.** The hook
-  parks unstaged and untracked changes while its gates run, and wrote them
-  back with `git stash apply`, a three-way merge against `HEAD`: a file whose
-  index held some of its hunks and whose worktree held them all changed one
-  region on both sides, and the merge stopped unmerged after the gates had
-  passed, failing the commit and leaving the tree half applied. The restore
-  now writes the stash's own trees back file by file, the tracked changes
-  from the stash commit, the untracked files from its third parent, a deleted
-  path removed, and never touches the index.
+- **The C++ binding closes a library it refuses.** The one that serves stays
+  open for the life of the process.
 
-- **A gate run killed mid-probe leaves a leftover that names itself.**
-  `tools/check_build_incremental.py` restores the two sources it edits on exit,
-  on SIGINT and on SIGTERM, which SIGKILL bypasses. A killed run left its
-  markers in two Agda sources and its build child running; that child held
-  Shake's lock, a record lock the kernel frees with its holder, so the next
-  build was refused by a live process rather than a stale file, and the next
-  gate run refused on the markers, neither saying a run had been killed. The
-  marker now carries the pid and start time of the run that wrote it. The gate
-  refuses on a marker before it builds or captures a source, naming the run,
-  whether it still lives, and the edit that restores the file, and refuses while
-  a build holds Shake's lock, naming that process. Two runs cannot overlap: the
-  gate holds the repo-wide Agda lock, and a second run reports it as held. Tests
-  hold each refusal.
+- **A signal the frame does not carry is reported, not read (BREAKING).** An
+  Intel one is routed to the per-signal error stream with its own wire code, and
+  a zero-byte frame reports every signal of the message.
 
-- **A binding that ran but reports no number for a baseline lane fails the
-  benchmark gate.** `tools/benchmark_gate.py` walked the baseline's lanes and
-  skipped any the run did not carry, one rule for two cases: a binding with no
-  result file at all, which did not build and is `pr-full-ci`'s to report, and a
-  binding whose file is present and shorter than the baseline, which the gate
-  read as nothing to compare. A harness that lost a lane, or renamed one while
-  the baseline kept the old name, passed with the lane unscored. The gate now
-  skips only the binding with no file; a present binding lacking a baseline lane
-  fails, with the binding and lane named on stderr under their own heading,
-  apart from the regressions. A test holds that polarity, and
-  `docs/development/BENCHMARKS.md` states both cases.
+- **A frame is built only at a DLC that holds every signal it places
+  (BREAKING).** The builder refuses any other for an Intel signal, naming the
+  first that does not fit, and the update path holds the frame it is given too.
 
-- **The Go benchmark harness aborts on a failed warmup operation, as the other
-  three do.** Its throughput mode printed a warmup failure and went on to the
-  measured runs, on the reasoning that a warmup produces no number. It produces
-  no number, but a lane whose warmup failed ran against a client it could not
-  drive, and its measured runs then measured something else or died later on the
-  same cause with the warmup's message gone; the Go latency mode, the C++, Rust
-  and Python harnesses all abort. The throughput lane now lives in one function
-  that returns the first failed pass as its error, warmup or measured, named by
-  the lane and the pass, and the harness dies on it. That function is driven by
-  tests that need no kernel.
+- **The binary frame builder refuses a DLC code past the wire's last, 15
+  (BREAKING C ABI).** The other binary entries already refused one.
 
-- **The C++ benchmark harness aborts on a failed timed operation and refuses a
-  count of zero.** Inside its measured loops a `send_frame`, `extract_signals`
-  or `build_frame` that returned an error was timed like a success, so a binary
-  that could not decode the current wire published a plausible frames-per-second
-  figure rather than failing, the one binding where a fabricated measurement
-  could still reach a baseline. The timed loops now live in
-  `cpp/benchmarks/measure.hpp`, whose loops throw the first operation's error
-  with the step's name, and whose clock is a type parameter so their unit test
-  drives them under a stepping clock rather than the host's time. `--frames 0`,
-  `--runs 0` and `--ops 0` are refused at the option parser with the Go
-  harness's wording; `--warmup 0` stays a measurement with no warmup. The header
-  is on the C++ mutation surface, so the sliced lane's partition, cut over
-  `cpp/src` and `cpp/include`, now takes `cpp/benchmarks` into its domain and
-  the census record is re-taken with the header's mutants.
+- **The C++ loaders' shared then-dispatcher refuses a missing slot by name.** A
+  slot it reads and was not given is refused, as the Python one does.
 
-- **`shake clean` removes the Agda interfaces.** Agda writes its interfaces
-  under the project root's `_build/`, and the line meant to remove them named
-  `src`, where none has ever been, so a clean build re-derived MAlonzo from
-  interfaces it did not regenerate and the reproducible-build gate compared two
-  builds sharing one interface set. `clean` now removes `_build/` with the rest,
-  and the gate's second build type-checks the runtime closure from cold, which
-  is the cost of comparing two clean builds.
+- **The bundle validator's Go consumer imports the module the bundle ships.**
+  The validator reads the `module` directive of `bindings/go/go.mod`, and
+  refuses a bundle whose installer prints a `go get` for any other module.
 
-- **The proof gate runs warm on a restored build tree.** Agda writes its
-  interface files under the project root's `_build/`, never beside the MAlonzo
-  output, and the build-tree cache carried `build/` and the two `dist-newstyle`
-  trees only, so every run type-checked the proof-only closure from cold whatever
-  the cache restored: measured 2026-09-22 on a documentation-only pull request
-  whose run restored the tree, 831 s for the proof gate on the runner against
-  26 s warm on the development machine. The cache now carries `_build/` too, in
-  every workflow that restores it, since the platform hashes the path list into
-  an entry's version and a step naming a different set misses. The full sweep is
-  the one workflow that saves the tree: it is the run that type-checks every
-  module, so the interfaces it saves are complete, where a build lane's hold the
-  runtime closure at most, and a cache key once written is immutable.
-
-- **A "gates clean" claim is checked against the sweep's own record of what it
-  observed, never against a timestamp.** `tools/check_gate_claim.py` compared
-  the modification time of `build/libaletheia-ffi.so` with that of every
-  build-relevant file the commit changed. A checkout rewrites every mtime and
-  moves no content, so after a branch switch every such file read as newer
-  than the library, the build the remedy named found nothing to relink, and
-  only a clean rebuild, measured at 3m48s of compiler time spent to change a
-  timestamp, cleared a gate that had fired on a clean tree. The sweep now
-  digests the build sources it observes, git's own blob ids over the Agda
-  sources, the Shakefile, the Haskell shim and the library file, records the
-  digest in its log's header and exports it to every step it runs; the check
-  digests the commit's sources the same way and asks for a sweep that recorded
-  it, the running one or a passed log under `tools/ci-output/`. A sweep
-  re-measures the digest before it vouches and fails when the sources moved
-  under it, and a `--fast` sweep, which runs a subset, records none. The
-  remedy the check prints is the sweep, whose log is the evidence.
-
-- **A build-tree cache entry is saved only where there is a build tree.** The
-  save step was gated on the run not having been cancelled, which is true of a
-  run that failed, so a job that died before the build still wrote an archive of
-  whatever scraps were on disk under its own key. The restore keys match by
-  prefix, newest first, so every later run found that entry ahead of a real one,
-  restored nothing and rebuilt the kernel from scratch. Measured on the entries
-  three failed runs left: about 1.4 kB each against the 35 MB a built tree takes,
-  and a 308-second rebuild in the job that restored one, where a hit no-ops in
-  0.03s. Both workflows that save the tree now ask first whether the shared
-  library it is for is on disk, and `python/tests/test_build_tree_cache_guard.py`
-  holds every such save to that question, since the run that poisons the cache
-  passes and the one that pays is the next. The stability bench, which restored
-  no tree at all, now restores one and saves it under the same guard: it
-  measures the kernel rather than the compiler, and paid about five minutes a
-  run to build what another lane had already built. The lane that compares two
-  clean builds keeps restoring nothing, which the same test holds it to, since a
-  restored tree would make its first build incremental and its comparison
-  vacuous.
-
-- **The C++ merge's drift line prints the share it compares against to a
-  decimal.** The line beside the merge's verdict, the one figure the scheduled
-  review of the slice weights reads, printed the equal share rounded to a
-  whole mutant, so a fresh census of 1037 read as a heaviest slice of 346
-  "0.1% over an equal share of 346". The share is printed to a tenth now, and
-  the line has a test for each of its three arms, which it had none of. The
-  comment on the slice count in `tools/mutation_cpp_slices.py` cited two
-  percentages no commit of the record reproduces; it now states the reason
-  for three and names the merge's print as the measurement.
-- **A change to any module of the mutation harness runs every mutation lane.**
-  The scope rule names the paths whose change is every binding's change, and
-  it named the harness by its runner alone, so the modules the C++ lane, its
-  report shapes, its kill-route census and its slice partition live in were
-  a change no lane ran on its own pull request: the legs read no binding
-  directory in the diff and reported in under a minute, and the change was
-  first exercised by the push to `main`. The rule now covers the harness by
-  prefix, with the scratch-directory helper the C++ lane imports named beside
-  it, and the scope tests read every tracked harness module from the tree
-  rather than from a list, which is how a module added later stays covered.
-- **A merged mutation report carries the score of its own mutants.** Mull
-  writes the score of the sweep behind each report, and both merges produce a
-  report no sweep did: the cross-tree merge revives every mutant another tree
-  killed, and a tree's slices each scored their own share of the surface. The
-  field was carried forward from the first input, so `cpp-mull.json` stated a
-  number nothing had measured, which is what the Elements viewer renders.
-  Measured on two reports scoring 50 and 99 whose merge kills every mutant:
-  the merge carried 50. It is recomputed from the merged statuses now. Masked
-  until now only because every C++ lane reads 100 percent.
-- **The Mull cache key hashes the patches the build applies.** The key hashed
-  `tools/build_mull.sh` alone, so a patch under `tools/mull/` edited on its own
-  replayed the previous binaries from the cache and the lane swept with a
-  mutator the tree no longer described.
-- **A translation unit clang-query cannot parse fails the restated-type gate.**
-  clang-query exits zero after a fatal diagnostic and matches nothing in the
-  unit, which the gate read as a unit with nothing to report.
-- **The counting-loop gate reads a step written as an assignment.** `i = i + 1`
-  passed a scan that knew only the step operators, and the `while` and `do`
-  rows of `docs/CPP_INDEX_LOOPS.yaml` carried the scan's blanked text rather
-  than the header's own, so a row could not be pasted back. Both ratchet
-  records now refuse a malformed row by name instead of raising.
-- **The allocation-fault sweep refuses a call it cannot record.** A call
-  making more allocations than the recording holds read as zero points, the
-  answer of a call that allocates nothing; it is now `-1`, and the count of
-  scratch directories the sweep's tail removes counts what is gone rather than
-  what was attempted.
-- **The changelog gate refuses a category header repeated under `[Unreleased]`,
-  and one that is not a Keep-a-Changelog category.** A second `### Changed` is
-  where an entry lands out of sight of the first; the gate now names the header,
-  the two blocks this file carried are one, and the six categories are an
-  enumeration in the gate.
-- **A killed test run no longer leaves its scratch directory behind.** Each
-  C++ test binary owns one directory under the system temp directory and
-  removes it at exit, which a run a signal ends never reaches: a mutant killed
-  by a test's assertion exits normally and removes its own, where one killed by
-  a fault or by the kernel leaves it behind. Measured over one sweep of the two
-  trees, 2074 runs of the test binary left
-  248 directories, and they accumulated across sweeps until a 16 GB `/tmp`
-  was full and a sweep died on the next line it wrote. The fixture now holds
-  an exclusive lock on its own directory and, before creating it, removes
-  every directory of the same shape whose lock it can take. The lock is what
-  separates a running owner from a gone one, where a process id is reused and
-  a timestamp is not a freshness signal, and it repairs every caller rather
-  than one. The lane removes the tail its own last runs leave, which
-  has no next run to repair it, and a progress write that fails now names the
-  filesystem it failed on and the space left there, rather than pointing at
-  whichever line happened to be writing.
-
-- **The renderer closes a library it refuses.** Loading the rational
-  renderer opened the kernel library and, when an entry it needs was missing,
-  recorded the refusal and left the mapping open. The load now owns its handle
-  and closes it on every refusal; the one that serves is released to the
-  process for the renderer's lifetime.
-
-- **The mutation lanes run one per binding, and each one streams.** The C++
-  surface that this change took from 264 mutants to 971 across two build trees
-  shared a single 90-minute job with the Python and Go lanes, and was killed by
-  that budget with its sweep still running. The three now run as parallel lanes
-  on their own clocks, each told to skip the other two; the check the branch
-  ruleset requires keeps its name and reports them, passing only when every
-  lane succeeded and refusing every other result, a budget kill included. The long
-  commands, `mutmut run`, `gremlins unleash`, `mull-runner` and the cmake build
-  of each mutation tree, stream their output through a new
-  `tools/_common.run_streaming` instead of having it captured: the killed job
-  had logged one line in 78 minutes and lost the rest, so nothing said which
-  binding it was in or how far it had got. Each lane now records its own wall
-  time as `elapsed_s`, so the next budget is read off a measurement.
-
-- **A signal the frame does not carry is reported, not read.** The bit reader
-  is total and answers zero for bits that are not there, so extracting a
-  sixteen-bit signal from a one-byte frame reported success with a value the
-  frame never carried: the low byte read as the whole signal, and a signal
-  starting past the end read as zero. The extractor now asks the same geometry
-  the ingest gates decide, of the frame's own size, and routes a signal that
-  does not fit to the per-signal error stream with its own wire code. A
-  zero-byte frame reports every signal of the message rather than a set of
-  zeroes.
-
-- **A frame is built only at a DLC whose bytes hold every signal it places.**
-  The caller's DLC sizes the frame and the DBC places the bits, and the bit
-  writer is total: a signal reaching past the end had its overhanging bits
-  written nowhere and the frame answered as if it carried them. A build at DLC
-  1 of a message whose first signal is sixteen bits wide returned a one-byte
-  frame carrying half of it, with no error. The builder now names the first
-  signal that does not fit, on the same geometry proposition the DBC ingest
-  gates decide, and the update path holds the frame it is given to the same
-  rule. Two lemmas carry the refusal into the proofs: the check answering
-  "none" is the `AllSignalsFit` the round-trip theorems assume, and a payload
-  the builder answers with was built from signals that all fit, so the
-  hypothesis those theorems carried is now discharged by the call succeeding
-  rather than asked of the caller.
-
-- **The binary frame builder refuses a DLC code past the fifteen the wire has.**
-  The DLC crosses the binary wire as a raw byte and the kernel sizes the frame
-  it builds from it. Three of the four binary entries held it to the codes the
-  wire has; the frame builder took none of them, so a build at DLC 42 answered
-  success and filled 42 bytes of a buffer the caller had sized for eight. The
-  bound the other three share is now one function they all call.
-
-- **The C++ mutation lane measures what it claims to.** Four defects held its
-  surface to a fraction of the library. Mull's junk detector re-parses each
-  translation unit to tell a mutant from junk, and the build recorded no command
-  line, so it re-parsed with no flags, failed at the first project include, and
-  dropped every mutant of most units; the mutation build now records the command
-  line. The two loaders reached the binary through their own suites only, and the
-  static link dropped their objects, so `yaml.cpp` and `excel.cpp` had no mutant
-  though the baseline lists them; the loader suites are folded into the mutation
-  binary as the integration tests were. ccache replayed cached objects, and their
-  stderr, into a mutation build whose plugin and `cpp/mull.yml` it does not hash;
-  the mutation build takes no launcher. And the suites wrote fixtures under fixed
-  names in the system temp directory, so Mull's parallel runs failed each other's
-  file-size-cap cases and counted the failures as kills; every fixture now lives
-  under a per-process directory, and the per-mutant cap is pinned in the config
-  rather than left to Mull's ten-times-the-baseline default, under which the
-  same binary read ten times as many timeouts. With that, the shared then-dispatcher of the
-  loaders is on the surface: it takes a map of the slots the loader read and
-  refuses a slot it reads and was not given, by name, as the Python one does,
-  instead of positional values with a filler no test could observe; `cpp/mull.yml`
-  adds Mull's call mutators, which are the only ones that reach code written as
-  calls, and holds the test sources out, since a mutant in a test measures the
-  harness; the recorded C++ baseline is the measured survivor count of that
-  surface, with any survivor above it failing the lane; and `tools/build_mull.sh` takes libirm at the commit that truncates a
-  replaced call's constant to the call's width, because the scalar-call mutator
-  aborted clang on the first `bool`-returning call it met.
-- **The proof gate waits for a slow module and runs Agda on one capability.** The
-  warm Agda process gave up on a module after 300 seconds without output, described
-  as a hang detector; Agda sends nothing while it checks a module and everything once
-  done, so the cap was a wall-clock bound that the two cold-checked proof modules
-  crossed on a loaded runner, failing sweeps that passed on retry. The cap moves far
-  above any module, a load that hits it reports how long Agda was silent, and Agda
-  runs at `-N1`: its checker is single-threaded, and the parallel-GC threads `-N` adds
-  only cost. The sweep log is uploaded as an artifact, per-module times included.
-- **The bundle validator's Go consumer imports the module the bundle ships.** The
-  consumer fixture named this tree's module path, so validating a published release
-  failed the moment the path moved, as it did when the module took its major version:
-  the v5.0.0 bundle declares the old path and the validator asked `go get` for the
-  new one. The validator now reads the `module` directive from the bundle's own
-  `bindings/go/go.mod`, retargets the fixture's import to it, and refuses a bundle
-  whose installer prints a `go get` for any other module, naming both paths.
-- **A caller-injected Python backend is provably the one re-used after `close()`.**
-  The re-entry test asserted only that re-entry succeeds, which it does either way:
-  a client that wrongly treated an injected backend as its own would drop it on
-  close and build a real `FFIBackend` on the next `__enter__`, silently swapping a
-  test double for the shared library. The test now asserts the injected object is
-  the one initialised again. Found by the mutation lane once its generator was
-  pinned; the Python row is re-measured at 924 mutants with the one documented
-  equivalent surviving.
-- **Two gates stop depending on whatever the machine happens to have.** `cmake-lint`
-  came from a distro package declared nowhere, so the CMake gate exited 127 on the
-  runner while passing locally; it is pinned as `cmakelang` and routed through the
-  venv, like `clang-format`. `cmakelang` and `mutmut` are each pinned to one exact
-  version, because a lint tool's findings and a mutation generator's mutant set are
-  the gate itself: `mutmut` was a range, so a developer could sit on the floor while
-  CI resolved to the newest, two releases in one major enumerate different mutant
-  sets, and the survivor CI reported could not be reproduced locally at all.
-
-- **The Rust binding passes clippy on the toolchain CI installs.** CI tracks the
-  latest stable Rust, and `clippy::chunks_exact_to_as_chunks` is new in 1.98: it
-  fired on four pre-existing sites in the binary response decoder that no local run
-  could see, because the development toolchain was still on 1.97. The four read
-  `as_chunks::<N>().0` now, which is the same traversal with the chunk width in the
-  type, and the local toolchain was moved to stable so the lint is reproducible.
-
-- **The C++ library builds again on the standard library CI pins.** A filter helper
-  written during the review used the `views::filter | std::ranges::to<std::vector>()`
-  pipe, which needs a libstdc++ point release newer than the one ubuntu-24.04 ships,
-  so the whole C++ build failed on the runner while passing locally on a newer one.
-  It copies with `std::ranges::copy_if` now, and the benchmark's two folds use
-  `std::reduce` rather than `std::ranges::fold_left` for the same reason. The pinned
-  standard library is the floor a consumer building the binding is held to, so the
-  code moved rather than the floor.
-
-- **The bill of materials reads every C++ pin again, and names the package rather
-  than the fetch.** The generator derived a version from a release tag shaped
-  `v1.2.3` or a bare `1.2.3`, so the yaml-cpp bump to a tag that repeats the project
-  name (`yaml-cpp-0.9.0`) made the pin unreadable and failed the whole bill. It reads
-  that shape now. The two dependencies pinned on the spreadsheet library's behalf are
-  declared under the content name its helper requires, which carries a `_fetch`
-  suffix; the bill strips it, so they appear as `miniz` and `pugixml` with the purls a
-  consumer would look up. Both shapes have a test that fails without the fix.
-
-- **The benchmark harness no longer measures stale binaries.**
-  `benchmarks/run_all.sh` ran the C++ and Go benchmark binaries if the file merely
-  existed, building only Rust. A Go binary predating the detailed-extraction-reason
-  wire format could not decode extraction responses, so both Signal Extraction
-  lanes failed — and were then silently dropped, leaving 4-lane Go baselines in
-  `benchmarks/results/`. The harness now **builds** the C++, Go and Rust benchmarks
-  itself (incremental; a missing toolchain stays a per-lane skip), captures
-  benchmark stderr instead of discarding it and replays it when a lane fails, and
-  clears the selected mode's results first so a skipped or failed lane contributes
-  nothing rather than its previous run's numbers. CI was never affected — the
-  benchmark workflow always built all four in-job.
-- **A benchmark lane that cannot be measured is now an error, not an omission.**
-  The Go harness dropped an all-failed throughput lane, omitted a failed latency
-  lane, and reported a fabricated `0` for a failed scaling point (which divides
-  through every `relative` in the sweep). Any failed run is now fatal — continuing
-  published a row whose `runs` field overstated the sample it was computed from —
-  and neither Go nor Rust can average an empty sample. Python already aborted on a
-  failed operation; the C++ harness does not check its per-operation results and is
-  tracked separately.
-- **All 12 local baselines re-measured** with freshly built binaries. The previous
-  Go throughput/latency baselines are void rather than outdated: they came from a
-  binary that could not decode the wire it was measuring, so its four surviving
-  lanes are as untrustworthy as its two missing ones.
-- **The benchmark harness refuses a zero or non-numeric count, and a broken
-  build fails the run instead of skipping the lane.** `--frames 0` made every
-  lane publish a schema-conformant all-zero report and exit 0: a fabricated
-  measurement set, the class of defect the harness exists to prevent. Both
-  `--frames` and `--runs` must now be positive integers, checked before the mode
-  check, every preflight and the results clear, so a refused value touches
-  nothing. A lane whose toolchain is on PATH but whose build fails is reported
-  as FAIL and fails the run; only an absent toolchain is still a skip. A lane
-  whose scratch file cannot be created fails without leaving a file behind, the
-  scratch names are ignored by git, and `ALETHEIA_BENCH_RESULTS_DIR` redirects
-  the results directory.
-
-- **A fresh benchmark run can be read against its committed baseline.**
-  `benchmarks/compare.py` keyed its columns on the language a file named, so a
-  binding's fresh result and its baseline replaced one another without a word,
-  as did one binding's three modes, and the complexity labels of the scaling
-  table were cut at twelve characters. A column is now the binding plus what the
-  file's name adds beyond `<binding>_<mode>`, every mode given prints its own
-  table, two files that would share a column are refused with both named, and a
-  binding given with its baseline prints, per lane, the current mean, the
-  baseline mean, the delta and the current standard deviation, the report shape
-  `AGENTS.md` asks for. The reconfigure `benchmarks/run_all.sh` prints when it
-  refuses a Debug-configured `cpp/build` no longer opens with a clean of the
-  tree: setting the build type on the existing cache is the whole of the fix,
-  and the clean threw away the fetched dependencies for nothing.
-  `docs/development/BENCHMARKS.md` gains the Local baselines section that names
-  the committed files, what each mode's baseline records and how a fresh run is
-  read against it, and loses a runtime version list one baseline already
-  contradicted; the runtime versions are each file's `system` object.
+- **The bill of materials reads every C++ pin again, and names the package
+  rather than the fetch.** It reads a tag that repeats the project name, and
+  `miniz` and `pugixml` appear with the purls a consumer would look up.
 
 ### Removed
 
-- **Go's `RegisterDefaultLibPath` (BREAKING).** With the renderer and the
-  decimal parser reading the library the runtime started on, nothing the Go
-  binding ships searches for a library, so the path it registered had no
-  reader.
+- **Go's `RegisterDefaultLibPath` (BREAKING).** Remove calls to it: the
+  renderer and the decimal parser read the library the runtime started on, so
+  the path it registered has no reader.
 
-- **The wire codes `dbc_text_parse_failure`, `dbc_text_trailing_input`,
-  `decimal_parse_failed` and `decimal_overflow` (BREAKING).** A text that
-  fails to parse answers `text_parse_failure` or `text_trailing_input`, whose
-  rows and Python, Go and C++ members replace the old names, and a decimal
-  `aletheia_parse_decimal` refuses answers the kernel's codes.
+- **Old text and decimal wire codes (BREAKING).** `dbc_text_parse_failure`,
+  `dbc_text_trailing_input`, `decimal_parse_failed` and `decimal_overflow` are
+  now `text_parse_failure`, `text_trailing_input` and the kernel's codes.
 
-- **The kept sweeps of the C++ mutation trees.**
-  `tools/mutation_sweep_cache.py`, which kept sweeps keyed on every file a sweep
-  reads, is removed with its tests, `cpp/mutation-sweeps/` and the
-  `fresh-process` directory the fresh-process suites were built into so its key
-  could find them. A dry run of one leg is `tools/mutation_cpp_dry_run.py`.
 - **The `frame_byte_count` bound kind and `max-frame-byte-count` (BREAKING).**
-  The bound refused nothing the DLC's byte count did not already refuse; a
-  frame of the wrong length is now `parse_payload_length_mismatch`, whatever
-  its length. The constant and the bound kind leave `Aletheia.Limits` and the
-  Python, Go and C++ mirrors.
-- **Six wire codes nothing in the kernel produced (BREAKING).**
-  `route_missing_array`, `route_dlc_exceeds_max`,
-  `route_byte_array_parse_failed`, `route_byte_count_mismatch` (whose only
-  producers left with the JSON streaming commands), `handler_invalid_dlc_code`
-  and `extraction_bit_extraction_failed` leave `docs/WIRE_CODES.yaml`, the
-  kernel's error types and every binding's vocabulary, and the routing errors
-  narrow to `RouteError`.
-- **The JSON streaming commands' removal in [3.0.0] was breaking.** `startStream`,
-  `sendFrame`, `extractAllSignals`, `endStream` and `formatDBC` were
-  documented commands of `aletheia_process`, listed under [3.0.0] "Removed"
-  without the BREAKING mark; a caller of the C entry depending on them
-  streams through the binary entries instead.
+  The C ABI answers a wrong length `parse_payload_length_mismatch`; both names
+  leave `Aletheia.Limits` and the Python, Go and C++ mirrors.
 
-- **`docs/development/DEFERRED_ITEMS.md`.** Pending work is tracked in one task
-  list rather than in a file in the tree, so the nine open items moved there whole
-  and the document went with them. Two consequences reach the tree. The in-source
-  notes that cited items by identifier now state their constraint in their own
-  words, which also retired three citations naming work that had already shipped;
-  and the memory-citation gate loses the exemption it carried for this document,
-  since the document it exempted no longer exists. The design plan for lossless
-  multiplexor emission left the tree in the same move: a plan for pending work is
-  pending work, so it is carried whole by the design task the two multiplexor
-  tasks execute against.
+- **Six wire codes left every binding (BREAKING).** `handler_invalid_dlc_code`,
+  `route_missing_array`, `route_dlc_exceeds_max`, `route_byte_count_mismatch`,
+  `route_byte_array_parse_failed` and `extraction_bit_extraction_failed` go.
 
-- **The self-contained `Dockerfile`** (in-container from-source build). It was
-  built by no CI, superseded by `Dockerfile.runtime` (the tested, signed,
-  shipped image — itself `COPY --from`-able and already carrying all four
-  binding sources), and had a pre-existing broken `dist` step. Build from source
-  with `cabal run shake -- build` (see [BUILDING.md](docs/development/BUILDING.md));
-  the container image is `Dockerfile.runtime`.
+- **The JSON streaming commands' removal in [3.0.0] was breaking.** Callers of
+  `startStream`, `sendFrame`, `extractAllSignals`, `endStream` and `formatDBC`
+  on the C entry `aletheia_process` stream through the binary entries instead.
 
+- **The self-contained `Dockerfile` (in-container from-source build).** Use the
+  `Dockerfile.runtime` image, or build from source with
+  `cabal run shake -- build` ([BUILDING.md](docs/development/BUILDING.md)).
 ## [5.0.0] — 2026-07-24
 
 ### Added

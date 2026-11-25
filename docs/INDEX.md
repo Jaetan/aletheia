@@ -77,6 +77,7 @@ Build and contribute:
 - **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
 - **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
 - **[CHANGELOG](../CHANGELOG.md)** - Release notes: one entry per behaviour change, fix or feature, breaking changes first (AGENTS.md "CHANGELOG: one entry per significant change")
+- **[v6.0.0 release note](releases/v6.0.0.md)** - Every breaking change from v5.0.0, by what you use, and the main additions
 
 ---
 
