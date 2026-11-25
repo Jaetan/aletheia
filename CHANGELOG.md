@@ -14,9 +14,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 - **The Go Excel module is released with every release, and each Go tag publishes
   what the release verified.** It is tagged `go/excel/vX.Y.Z` beside `go/vX.Y.Z`,
-  the tags Go looks for when a module lives in a subdirectory; each module's hashes
-  are recorded from the tree before the tags exist, and a tag whose module hashes
-  otherwise is refused.
+  the tags Go looks for when a module lives in a subdirectory; the two modules'
+  hashes are recorded from the tree before the tags exist, and a tag whose module
+  hashes otherwise is refused.
+
+- **The Go command line is released with every release.** It is tagged
+  `go/cmd/aletheia/vX.Y.Z` beside the core's and the loader's tags, its path
+  carrying the release's major, so `go install
+  github.com/Jaetan/aletheia/go/cmd/aletheia/v6@latest` installs it without a
+  clone. The program still opens the verified kernel, `libaletheia-ffi.so`, from
+  a release's bundle or package, and is built with a C compiler, without which
+  it refuses every command. No module
+  requires it, so no `go.sum` records its hash: before the tag the release
+  installs it from the tree as a consumer would, and once tagged, what GitHub
+  serves is held to the tagged commit. A release now goes out in two pushes,
+  since GitHub starts no workflow for a push of more than three tags: the Go
+  tags together, checked from GitHub, then `vX.Y.Z` alone; the pre-push hook
+  refuses any other order.
 
 - **A predicate is an operand of until and release.** `Predicate` gains
   `until`, `release`, `metric_until` and `metric_release`, and a property's
@@ -2346,10 +2360,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   parent or a descriptor limit says the stat failed. Python already distinguished
   them, having no such check of its own.
 
-- **BREAKING (Go): both modules are named where the repository is, and each
+- **BREAKING (Go): the modules are named where the repository is, and each
   path carries the release's major.** The core module is
-  `github.com/Jaetan/aletheia/go/v6` and the spreadsheet loader is
-  `github.com/Jaetan/aletheia/go/excel/v6`; every import moves with them. The
+  `github.com/Jaetan/aletheia/go/v6`, the spreadsheet loader
+  `github.com/Jaetan/aletheia/go/excel/v6` and the command line
+  `github.com/Jaetan/aletheia/go/cmd/aletheia/v6`; every import moves with them. The
   previous path named a location this repository does not publish from, so a
   consumer typing it reached whatever is served there rather than this code. Go
   accepts a major of two or more only when the path ends in the matching suffix. A
