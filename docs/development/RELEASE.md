@@ -22,7 +22,7 @@ and what trust anchor verifies it**:
 
 | Path | Trigger | Signing | Consumer verifies with |
 |---|---|---|---|
-| **CI (default)** | Push a `v*` tag | **Keyless** — Sigstore via the GitHub Actions OIDC identity; no key in CI | the workflow identity (`--certificate` + `--certificate-identity-regexp …`) |
+| **CI (default)** | Push a `v*` tag, after its Go tags ([step 8](#8--tag-the-squashed-commit-the-go-tags-their-check-then-vxyz)) | **Keyless** — Sigstore via the GitHub Actions OIDC identity; no key in CI | the workflow identity (`--certificate` + `--certificate-identity-regexp …`) |
 | **Local (fallback)** | Run `shake dist` by hand | The maintainer's cosign key from the local keyring | `keys/cosign.pub` (`--key …`) |
 
 The **CI path is the default.**  Pushing a `v*` tag runs
@@ -50,6 +50,16 @@ under `REL` these are staged into `.commands-to-run.sh` (or called out) for you 
 run or click; the rest the agent runs. The default is the **CI (tag-triggered)**
 path (see [Release paths](#release-paths)); the local fallback differs only at the
 signing/publish steps and is noted inline.
+
+**At a glance:** (0) pick the version; (1) branch off `main`; (2) bump the
+version stamps and record the Go modules' hashes; (3) cut the CHANGELOG and
+commit, signed; (4) rebuild the kernel and smoke the version; (5) run the
+release gates; (6) push, open the PR, merge it; (7) dispatch the release
+workflow as a dry run; (8) tag the merged commit in two pushes, the Go tags
+first, checked from GitHub, then `vX.Y.Z` alone, which starts the release
+workflow; (9) verify the draft Release as a consumer and publish it; (10) the
+first image's one-time GHCR setup; (11) record the release in the project's
+docs.
 
 ### 0. Decide the version (SemVer)
 
@@ -96,11 +106,13 @@ Then the Go modules. Go knows a module's version only by a tag (step 8), and a
 requiring module records that version only as the hash of the module's
 contents, in its `go.sum`; the public checksum database keeps the first hash it
 serves for a version. So the hashes are written now, from the tree, before any
-tag exists: the core module (`go/`) and the Excel module (`go/excel/`), which
-the others require, are released with every release, their paths carrying its
-major.
+tag exists. Every module of the Go workspace is released with every release, its
+path carrying the release's major: the core module (`go/`) and the Excel module
+(`go/excel/`), which the others require and whose hashes their `go.sum` files
+record, and the command line (`go/cmd/aletheia/`), which a consumer installs and
+no module requires.
 ~~~bash
-python/.venv/bin/python -m tools.go_release move-major   # a MAJOR release: moves every tracked spelling of both paths
+python/.venv/bin/python -m tools.go_release move-major   # a MAJOR release: moves every tracked spelling of the three paths
 python/.venv/bin/python -m tools.go_release write        # every requirement on them at vX.Y.Z, go.work and each go.sum to match
 ~~~
 `write` commits the tree to a scratch repository, tags it there, and has go
@@ -125,7 +137,11 @@ history, test fixtures and deliberate prose. The sweep holds the rest: the
 `check_docs` refuses a tracked spelling of a Go module's path at a major its
 `go.mod` does not declare; `go build (outside the workspace)` serves each Go
 module at vX.Y.Z from the tree only where the tree hashes as every `go.sum` line
-records, and otherwise fetches it from GitHub, which holds no such tag yet.
+records, and otherwise fetches it from GitHub, which holds no such tag yet; once
+every one is served, it runs `go install` on the command line at vX.Y.Z from the
+tree, as a consumer installs it but off the network: the third-party modules
+come from what the step's own builds downloaded, then from the local module
+cache, and one neither holds fails the step.
 
 ### 3. ⚑ CHANGELOG — cut, then commit (signed)
 
@@ -205,51 +221,82 @@ from the commit. Fix any
 failure and **re-dispatch until green** (each dispatch also exercises steps a
 prior failure left unreached, e.g. the image build after a failed `.deb` smoke).
 **Gate:** the dispatch run is green. Residual it cannot cover: its publish
-steps, the exact `@refs/tags/vX.Y.Z` self-verify identity and GitHub's answer
-for the tagged version are first-exercised on the real tag (the cert-identity
-format is deterministic, and the fetch is the one the dispatch made for the
-commit, so this is small but inherent to a release).
+steps and the exact `@refs/tags/vX.Y.Z` self-verify identity are
+first-exercised on the real tag (the cert-identity format is deterministic, so
+this is small but inherent to a release); GitHub's answer for the Go modules at
+their tags is checked at step 8, before `vX.Y.Z` exists.
 
-### 8. ⚑ Tag the squashed commit → release.yml → DRAFT
+### 8. ⚑ Tag the squashed commit: the Go tags, their check, then vX.Y.Z
 
 Tag the **squashed `main` commit** from step 6, by its id, once `main`'s own CI
 run on it is green (its sweep built the Go modules against that commit's
-hashes); signed, and admin-only (an admin bypass line on push is expected):
+hashes); every tag signed, and admin-only (an admin bypass line on push is
+expected). The tags go out in **two pushes**: GitHub creates no push event for
+tags when more than three are pushed at once, and `vX.Y.Z` is the tag
+`release.yml` runs on, so the three Go tags go first and `vX.Y.Z` follows alone,
+once GitHub serves the Go modules at their tags.
+
+**8.1 Check the commit and make the Go tags.**
 ~~~bash
 commit=$(git rev-parse origin/main)   # the squash commit of step 6
 python/.venv/bin/python -m tools.install_hooks   # the pre-push hook as the tree writes it
 python/.venv/bin/python -m tools.go_release check-commit "$commit"
-git tag -s vX.Y.Z -m "Aletheia vX.Y.Z" "$commit"
 git tag -s go/vX.Y.Z -m "Aletheia Go module vX.Y.Z" "$commit"
 git tag -s go/excel/vX.Y.Z -m "Aletheia Go Excel module vX.Y.Z" "$commit"
-git push origin vX.Y.Z go/vX.Y.Z go/excel/vX.Y.Z
+git tag -s go/cmd/aletheia/vX.Y.Z -m "Aletheia Go command line vX.Y.Z" "$commit"
 ~~~
+
+**8.2 Push the Go tags, together.**
+~~~bash
+git push origin go/vX.Y.Z go/excel/vX.Y.Z go/cmd/aletheia/vX.Y.Z
+~~~
+
+**8.3 Check what GitHub serves at them**, before the release tag exists:
+~~~bash
+python/.venv/bin/python -m tools.go_release check-published X.Y.Z
+~~~
+It fetches each module at its tag from GitHub directly, through no module proxy
+or checksum database, and compares the core and Excel modules with the hashes
+the commit's `go.sum` files record, the command line, which no `go.sum`
+records, with the commit's own objects.
+
+**8.4 Push the release tag, alone.**
+~~~bash
+git tag -s vX.Y.Z -m "Aletheia vX.Y.Z" "$commit"
+git push origin vX.Y.Z
+~~~
+
 The `go/` tags make the Go modules fetchable at that version: each module lives
 in a directory of its own, and Go looks for a tag carrying that directory's
 prefix, so a consumer requiring `github.com/Jaetan/aletheia/go/v5 vX.Y.Z`
-resolves `go/vX.Y.Z` and nothing else. They publish the contents whose hashes
-step 2 recorded, and the checksum database keeps what it first serves, so a
-`go/` tag is never moved or made again. `check-commit` holds the commit to those
-hashes; the pre-push hook refuses a push of release tags unless they name one
-commit that holds them (`tools/go_release.py check-tags`), once the installer
-has written the tree's hook over the copy in `.git/hooks`; the tag ruleset lets
-an admin alone create, move or delete a `v*` or `go/*` tag. `release.yml` runs
-on the first tag.
+resolves `go/vX.Y.Z` and nothing else, never `vX.Y.Z`. The core and Excel tags
+publish the contents whose hashes step 2 recorded; the command line's, which no
+`go.sum` records, publishes what step 2's sweep installed. Go's checksum
+database keeps the first hash anyone fetches through the public proxy, so a
+`go/` tag is never moved or made again: a finding at 8.3 is fixed by a new
+patch release. `check-commit` holds the commit to the recorded hashes and has
+go fetch the command line at its tag. The pre-push hook
+(`tools/go_release.py check-tags`, written over the copy in `.git/hooks` by the
+installer above) refuses a push of more than three release tags, a push of a
+version's Go tags unless all three go together, naming one commit that passes
+`check-commit`, and a push of `vX.Y.Z` unless it goes alone, every Go tag of the
+version already on GitHub at that commit. The tag ruleset lets an admin alone create, move or delete a `v*` or
+`go/*` tag.
 
-The tag push runs `release.yml`, which keyless-signs the tarball + `.deb` +
+The `vX.Y.Z` push runs `release.yml`, which keyless-signs the tarball + `.deb` +
 `.rpm`, self-verifies every signed artifact against the workflow OIDC identity,
 validates the bundle across bindings, install-smokes the `.deb`, builds the
-runtime image, holds the tagged commit and the Go modules GitHub serves at the
-tags to the recorded hashes, publishes a **DRAFT** Release,
+runtime image, holds the tagged commit to its recorded hashes and the Go
+modules GitHub serves at the tags as 8.3 did, publishes a **DRAFT** Release,
 and pushes + signs the GHCR image.
 Publish is gated on the verification steps.
-*(Local fallback — releasing off CI: instead of tagging, run
+*(Local fallback, releasing off CI: 8.1 to 8.3 stand; in place of 8.4, run
 `ALETHEIA_COSIGN_TLOG=1 cabal run shake -- dist` with `ALETHEIA_COSIGN_KEY` set,
 verify with `--key keys/cosign.pub`, then `gh release create vX.Y.Z
 dist/aletheia.tar.gz{,.sha256,.sig}`. See [Signing](#signing).)*
-**Gate:** `release.yml` green; a DRAFT Release exists with the tarball + package +
-sidecar assets. (If the GHCR push step fails, see step 10 — everything upstream
-still succeeded and is recoverable.)
+**Gate:** 8.3 prints no finding; `release.yml` green; a DRAFT Release exists
+with the tarball + package + sidecar assets. (If the GHCR push step fails, see
+step 10: everything upstream still succeeded and is recoverable.)
 
 ### 9. ⚑ Verify the draft as a consumer, then publish
 
@@ -267,16 +314,12 @@ cosign verify-blob --certificate aletheia.tar.gz.crt --signature aletheia.tar.gz
 ~~~
 Do the same for the `.deb`/`.rpm`, and `cosign verify` the image (see
 [Verifying release artifacts](#verifying-release-artifacts-consumer-side)).
-Fetch the Go modules at the tags from GitHub, against the tagged commit's
-`go.sum` lines:
-~~~bash
-python/.venv/bin/python -m tools.go_release check-published X.Y.Z
-~~~
+The Go modules were checked from GitHub at step 8.3 and again by `release.yml`.
 Optionally set the Release notes from the `[X.Y.Z]` CHANGELOG section
 (`gh release edit vX.Y.Z --notes-file <section>`), then flip **draft →
 published** (`gh release edit vX.Y.Z --draft=false --latest`).
-**Gate:** every artifact verifies OK against the tag identity, the Go modules
-hash as recorded; the Release is published and marked latest.
+**Gate:** every artifact verifies OK against the tag identity; the Release is
+published and marked latest.
 
 ### 10. ⚑ GHCR one-time setup (first release with an image)
 
@@ -315,13 +358,17 @@ line existed before step 9.
 
 ~~~bash
 # After bumping versions, recording the Go hashes and cutting the CHANGELOG
-# (see the runbook), tag the squash commit and push:
+# (see the runbook), tag the squash commit in two pushes, the Go tags first:
 commit=$(git rev-parse origin/main)
+python/.venv/bin/python -m tools.install_hooks
 python/.venv/bin/python -m tools.go_release check-commit "$commit"
-git tag -s vX.Y.Z -m "Aletheia vX.Y.Z" "$commit"
 git tag -s go/vX.Y.Z -m "Aletheia Go module vX.Y.Z" "$commit"
 git tag -s go/excel/vX.Y.Z -m "Aletheia Go Excel module vX.Y.Z" "$commit"
-git push origin vX.Y.Z go/vX.Y.Z go/excel/vX.Y.Z
+git tag -s go/cmd/aletheia/vX.Y.Z -m "Aletheia Go command line vX.Y.Z" "$commit"
+git push origin go/vX.Y.Z go/excel/vX.Y.Z go/cmd/aletheia/vX.Y.Z
+python/.venv/bin/python -m tools.go_release check-published X.Y.Z
+git tag -s vX.Y.Z -m "Aletheia vX.Y.Z" "$commit"
+git push origin vX.Y.Z
 # release.yml builds, keyless-signs, self-verifies, and publishes a DRAFT
 # Release.  Review it on GitHub, then flip it from draft to published.
 #
@@ -536,8 +583,6 @@ tarball was actually signed.
 ### One-time key generation
 
 The key-based path below is the **local fallback** (see "Release paths").
-
-
 
 The cosign keypair lives outside the repo.  Canonical paths:
 

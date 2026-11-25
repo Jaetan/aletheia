@@ -884,13 +884,13 @@ def _push_through_the_hook(
 
 @pytest.mark.process("the hook is a program git runs with the pushed refs on its stdin")
 def test_pre_push_refuses_a_tag_the_release_tool_refuses(tmp_path: Path) -> None:
-    """A tag push goes first to tools/go_release.py check-tags with git's lines; a no stops it."""
+    """A tag push goes first to tools/go_release.py check-tags, with the remote and git's lines."""
     refs = [RefName("refs/tags/v6.0.0"), RefName("refs/tags/go/v6.0.0")]
     ran = _push_through_the_hook(tmp_path, refs, ExitStatus(1))
     assert ran.status == 1
     assert "push is refused" in ran.stderr
     saw = (tmp_path / "saw.txt").read_text(encoding="utf-8").splitlines()
-    assert saw[0] == "check-tags"
+    assert saw[0] == "check-tags origin"
     assert [line.split()[2] for line in saw[1:]] == refs
 
 

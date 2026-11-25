@@ -20,10 +20,12 @@ Hooks installed:
     tree of the commit each pushed ref names.  A recorded passing sweep of
     that tree (``tools/sweep_evidence.py``) allows it at once; otherwise the
     hook runs the sweep and allows the push only when it passed on the pushed
-    tree.  A push sending a tag is first held by ``tools/go_release.py``: the
-    release's tags name one commit, which holds the hashes the tags of its Go
-    modules publish.  git holds the remote connection open while the hook runs, so the
-    sweep belongs before the push.  Rationale: offline validation catches
+    tree.  A push sending a tag is first held by ``tools/go_release.py``: a
+    release goes out in two pushes, its go/ tags together, then ``vX.Y.Z``
+    alone once the remote holds them, all naming one commit, which holds the
+    hashes its Go modules' tags publish and serves its Go command at its tag.  git
+    holds the remote connection open while the hook runs, so the sweep belongs
+    before the push.  Rationale: offline validation catches
     breakage before it lands on origin.  The CI sweep includes the IWYU gate
     (``tools/iwyu.py``) on files modified in the branch.
 
@@ -65,10 +67,13 @@ the commit each pushed ref names (git hands them on stdin) has a passing full
 sweep of its exact tree on record, and allows the push at once when it has.
 When one has none, it runs the sweep here over the working tree and asks
 again, so a sweep of a tree other than the pushed one allows nothing.  A
-push sending a tag is first held by tools/go_release.py: the release tags of
-one version name one commit, each go/ tag a released Go module, and that
-commit holds the hashes its tags will publish, which the public checksum
-database would keep for good.  Skip with `git push --no-verify`.
+push sending a tag is first held by tools/go_release.py, given the remote: a
+release goes out in two pushes, its go/ tags together, then vX.Y.Z alone once
+the remote holds them, since GitHub creates no event for tags when more than
+three are pushed at once; the tags name one commit, each go/ tag a released Go
+module, and that commit holds the hashes its tags will publish, which the
+public checksum database would keep for good, and serves its Go command at its
+tag.  Skip with `git push --no-verify`.
 """
 
 import os
@@ -126,12 +131,13 @@ def main() -> int:
                 "pre-push: release's tags to their hashes, is not found, so the push is refused.\\n"
             )
             return 1
-        tags = [sys.executable, "-m", "tools.go_release", "check-tags"]
+        remote = sys.argv[1] if len(sys.argv) > 1 else "origin"
+        tags = [sys.executable, "-m", "tools.go_release", "check-tags", remote]
         given = "\\n".join(lines) + "\\n"
         if subprocess.run(tags, input=given, text=True, cwd=repo_root, check=False).returncode:
             sys.stderr.write(
-                "pre-push: a release tag is pushed whose commit does not hold the hashes\\n"
-                "pre-push: its Go modules' tags publish, so the push is refused (see above).\\n"
+                "pre-push: tools/go_release.py refuses a release tag (see above), out of\\n"
+                "pre-push: the two pushes' order or off its commit's hashes: push is refused.\\n"
             )
             return 1
 
@@ -571,8 +577,8 @@ PRE_COMMIT_SUMMARY = (
 )
 PRE_PUSH_SUMMARY = (
     "every `git push` sending a tag first has `tools/go_release.py` hold the release's "
-    "Go modules to their recorded hashes; every `git push` asks `tools/sweep_evidence.py` "
-    "for a passing full sweep of the "
+    "tags to its two pushes' order and to the commit they name; every `git push` asks "
+    "`tools/sweep_evidence.py` for a passing full sweep of the "
     "pushed tree, runs `tools/run_ci.py` when none is on record, and blocks unless a "
     "sweep of the pushed tree passed; bypass with `--no-verify`"
 )

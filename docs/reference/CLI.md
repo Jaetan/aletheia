@@ -537,6 +537,26 @@ go run ./cmd/aletheia signals --dbc ../examples/demo/vehicle.dbc
 # cmd/aletheia is a module of its own in the go/ workspace, so both run from go/
 ~~~
 
+A release tags the command line too, so it installs at a release's version
+without a clone:
+
+~~~bash
+go install github.com/Jaetan/aletheia/go/cmd/aletheia@latest
+source /opt/aletheia/env.sh   # the .deb/.rpm's; a release bundle's env.sh does the same
+aletheia validate --dbc vehicle.dbc
+~~~
+
+`go install` builds the command line alone, not the verified kernel it runs on:
+the program opens `libaletheia-ffi.so` when it starts, from `$ALETHEIA_LIB`,
+else a `build/` directory seen from the working directory, else
+`/usr/local/lib`, so the kernel comes from a release, the bundle or its
+`.deb`/`.rpm` (installed under `/opt/aletheia`, whose `env.sh` sets
+`ALETHEIA_LIB`). The binding reaches the kernel through cgo, so the build needs
+a C compiler: without one, Go builds a program whose every command but
+`template` refuses with `ffi backend requires cgo on linux; build with CGO_ENABLED=1`. The binary is
+named `aletheia` and lands in `$(go env GOPATH)/bin`; the Python package's
+command has the same name, and the one earlier on `PATH` runs.
+
 The **Rust** binding ships a typed client library but no CLI yet (a Phase 6
 item) — see the [Rust API Guide](RUST_API.md).
 

@@ -488,11 +488,12 @@ jobs:
       # The Go modules' tags publish what the tagged commit's go.sum lines record,
       # and Go's checksum database keeps the first hash it sees: on a tag push the
       # tagged commit holds those hashes, and the released modules GitHub serves
-      # at the tags hash as recorded.  The dry run before the tag rehearses both
-      # on the commit: its recorded hashes where it prepares a release, and
+      # at the tags hash as recorded, the command line, which no go.sum records,
+      # as the tagged commit's own objects.  The dry run before the tag rehearses
+      # both on the commit: its recorded hashes where it prepares a release, and
       # GitHub serving the commit itself.  Every fetch goes to GitHub alone, never
       # through a module proxy.  Gates publish.
-      - name: Check the Go modules against their recorded hashes (gates publish)
+      - name: Check the Go modules against the commit (gates publish)
         if: ${{ !cancelled() }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ]; then

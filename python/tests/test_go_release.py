@@ -13,43 +13,52 @@ from __future__ import annotations
 
 import shutil
 from typing import TYPE_CHECKING
+from zipfile import ZipFile
 
 import pytest
 from _git_repo import commit, git
 
 from tools import go_release
-from tools._common import EnvName, RelPath
-from tools._manifests import GoModule, GoVersion
-from tools.commit_subjects import ReleaseVersion
-from tools.go_release import (
+from tools._common import CommandWord, EnvName, RelPath
+from tools._go_modules import (
     CannotCheckError,
     CommitId,
+    Environment,
     Fetched,
     FileText,
     Hashes,
     Major,
     ModuleHash,
+    Ran,
+    Reader,
     RefLine,
+    RemoteName,
     Revision,
     TagName,
+    W,
+    commit_of,
+    dependency_order,
+    differences,
+    github_environment,
+    read_release,
+    recorded,
+    released,
+    required,
+    tree_repository,
+    with_major,
+    without_major,
+)
+from tools._manifests import GoModule, GoVersion
+from tools.commit_subjects import ReleaseVersion
+from tools.go_release import (
     check,
     check_commit,
     check_publishable,
     check_published,
     check_tags,
-    commit_of,
-    dependency_order,
-    differences,
-    github_environment,
     move_major,
     pinned_requirements,
-    read_release,
-    recorded,
     rehearsal_findings,
-    released,
-    tree_repository,
-    with_major,
-    without_major,
     write,
 )
 
@@ -64,9 +73,18 @@ CORE, EXCEL = GoModule(f"{TOY}/go/v2"), GoModule(f"{TOY}/go/excel")
 # The loader once a release of major 2 has moved it.
 EXCEL_2 = GoModule(f"{TOY}/go/excel/v2")
 TOOL = GoModule(f"{TOY}/go/cmd/tool")
+# The command once a release of major 2 has moved it.
+TOOL_2 = GoModule(f"{TOY}/go/cmd/tool/v2")
 PSEUDO = "v2.0.0-20000101000000-000000000000"
 EXCEL_PSEUDO = "v0.0.0-20000101000000-000000000000"
-RELEASE_TAGS = (TagName("v2.0.0"), TagName("go/v2.0.0"), TagName("go/excel/v2.0.0"))
+RELEASE_TAGS = (
+    TagName("v2.0.0"),
+    TagName("go/v2.0.0"),
+    TagName("go/excel/v2.0.0"),
+    TagName("go/cmd/tool/v2.0.0"),
+)
+# The release's tag, pushed alone, after its go/ tags, pushed together.
+ROOT_TAG, GO_TAGS = RELEASE_TAGS[0], RELEASE_TAGS[1:]
 RELEASE = ReleaseVersion("2.0.0")
 _NO_OBJECT = "0" * 40
 _CANNOT_PARSE = 2
@@ -74,7 +92,7 @@ _CANNOT_PARSE = 2
 _DRIVES_GIT_AND_GO = "the release tool is git and go computing hashes and builds"
 
 
-def _reader(files: Mapping[RelPath, FileText]) -> go_release.Reader:
+def _reader(files: Mapping[RelPath, FileText]) -> Reader:
     """Read a repo-relative path from ``files``, None where it holds none."""
 
     def read(rel: RelPath) -> FileText | None:
@@ -151,6 +169,15 @@ def _object(root: Path, revision: TagName) -> CommitId:
     return CommitId(git(root, "rev-parse", revision).strip())
 
 
+def _remote(root: Path, dest: Path, *names: TagName) -> RemoteName:
+    """Return a bare repository standing in for GitHub, holding each tag of ``names`` from root."""
+    _ = git(root, "init", "-q", "--bare", str(dest))
+    if names:
+        refs = [f"refs/tags/{name}" for name in names]
+        _ = git(root, "-c", "core.hooksPath=/dev/null", "push", "-q", str(dest), *refs)
+    return RemoteName(str(dest))
+
+
 def _replace(root: Path, rel: RelPath, text: FileText) -> None:
     """Write ``text`` over the toy's file ``rel``."""
     _ = (root / rel).write_text(text, encoding="utf-8")
@@ -212,12 +239,13 @@ def test_a_major_is_spelled_as_go_spells_it() -> None:
     assert without_major(GoModule(f"{TOY}/go/excel/v12")) == EXCEL
 
 
-def test_the_released_modules_are_those_another_module_requires() -> None:
-    """The core and the loader are released; the command nothing requires is not."""
+def test_every_module_is_released_and_those_another_requires_record_hashes() -> None:
+    """Each module of the workspace is released; the command nothing requires records no hash."""
     release = read_release(_reader(_toy_files()))
     assert release.repository == TOY
     assert release.tag_version == "v2.0.0"
-    assert [m.directory for m in released(release)] == ["go", "go/excel"]
+    assert [m.directory for m in released(release)] == ["go", "go/excel", "go/cmd/tool"]
+    assert [m.directory for m in required(release)] == ["go", "go/excel"]
     assert [m.directory for m in dependency_order(release)] == ["go", "go/excel", "go/cmd/tool"]
 
 
@@ -236,7 +264,7 @@ def test_a_workspace_it_cannot_read_is_no_verdict() -> None:
 def test_every_requirement_on_a_released_module_is_pinned_to_the_release() -> None:
     """Block and one-line entries move to the version, an old major to the path; nothing else."""
     files = _toy_files()
-    shipped = released(read_release(_reader(files)))
+    shipped = required(read_release(_reader(files)))
     tool = files[RelPath("go/cmd/tool/go.mod")].replace(f"{CORE} ", f"{TOY}/go ")
     pinned = pinned_requirements(FileText(tool), shipped, GoVersion("v2.0.0"))
     assert pinned == (
@@ -272,8 +300,8 @@ def test_a_go_sum_differing_from_the_tree_is_named() -> None:
 
 @pytest.mark.process(_DRIVES_GIT_AND_GO)
 @pytest.mark.usefixtures("offline")
-def test_move_major_moves_every_spelling_but_the_history_and_the_command(tmp_path: Path) -> None:
-    """The core and loader move to the cabal major; CHANGELOG and the unreleased command stay."""
+def test_move_major_moves_every_spelling_but_the_history(tmp_path: Path) -> None:
+    """Every module moves to the cabal major, the command too; CHANGELOG stays."""
     files = _toy_files(ReleaseVersion("3.0.0"))
     files[RelPath("MOVED.md")] = FileText(f"Already {TOY}/go/excel/v3.\n")
     root = _toy(tmp_path, files)
@@ -281,8 +309,11 @@ def test_move_major_moves_every_spelling_but_the_history_and_the_command(tmp_pat
     assert (root / "MOVED.md").read_text(encoding="utf-8") == f"Already {TOY}/go/excel/v3.\n"
     readme = (root / "README.md").read_text(encoding="utf-8")
     assert readme == (
-        f"Import {TOY}/go/v3 and {TOY}/go/excel/v3; run {TOOL}. The core is {TOY}/go/v3.\n"
+        f"Import {TOY}/go/v3 and {TOY}/go/excel/v3; run {TOY}/go/cmd/tool/v3. The core is"
+        f" {TOY}/go/v3.\n"
     )
+    tool = (root / "go/cmd/tool/go.mod").read_text(encoding="utf-8")
+    assert tool.startswith(f"module {TOY}/go/cmd/tool/v3\n")
     assert (root / "go/go.mod").read_text(encoding="utf-8").startswith(f"module {TOY}/go/v3\n")
     assert (root / "CHANGELOG.md").read_text(encoding="utf-8") == f"The core was {CORE}.\n"
     assert move_major(root) == 0
@@ -297,7 +328,7 @@ def test_write_refuses_a_released_module_off_the_release_major(
     """A major release moves the paths first: write names the module and the command."""
     root = _toy(tmp_path, _toy_files())
     assert write(root) == 1
-    assert f"{EXCEL} carries no major 2, the release's: run" in capsys.readouterr().out
+    assert f"{EXCEL}, {TOOL} carry no major 2, the release's: run" in capsys.readouterr().out
     assert (root / "go/excel/go.mod").read_text(encoding="utf-8").endswith(f"{CORE} {PSEUDO}\n")
 
 
@@ -313,6 +344,7 @@ def test_write_records_what_the_tags_publish_and_a_second_write_changes_nothing(
     work = (root / "go/go.work").read_text(encoding="utf-8")
     assert f"replace {CORE} v2.0.0 => ./\n" in work
     assert f"replace {EXCEL_2} v2.0.0 => ./excel\n" in work
+    assert TOOL_2 not in work
     sums = (root / "go/cmd/tool/go.sum").read_text(encoding="utf-8")
     assert f"{CORE} v2.0.0 h1:" in sums
     assert f"{EXCEL_2} v2.0.0/go.mod h1:" in sums
@@ -324,42 +356,88 @@ def test_write_records_what_the_tags_publish_and_a_second_write_changes_nothing(
 
 @pytest.mark.process(_DRIVES_GIT_AND_GO)
 @pytest.mark.usefixtures("offline")
-def test_the_tagged_commit_holds_its_hashes_and_its_tags_pass(prepared: Path) -> None:
-    """The release commit hashes as recorded, and pushing its three tags is allowed."""
+def test_the_tagged_commit_holds_its_hashes_and_its_tags_pass(
+    prepared: Path, tmp_path: Path
+) -> None:
+    """The release commit hashes as recorded: its go/ tags go out together, then v2.0.0 alone."""
     head = commit_of(prepared, Revision("v2.0.0"))
     assert not check_commit(prepared, head, RELEASE)
-    assert not check_tags(prepared, _ref_lines(prepared, *RELEASE_TAGS))
+    empty = _remote(prepared, tmp_path / "empty.git")
+    assert not check_tags(prepared, _ref_lines(prepared, *GO_TAGS), empty)
+    holding = _remote(prepared, tmp_path / "holding.git", *GO_TAGS)
+    assert not check_tags(prepared, _ref_lines(prepared, ROOT_TAG), holding)
 
 
 @pytest.mark.process(_DRIVES_GIT_AND_GO)
 @pytest.mark.usefixtures("offline")
 def test_tags_off_the_release_are_refused(prepared: Path, tmp_path: Path) -> None:
-    """A go/ tag on the unreleased command, a malformed one, and one version on two commits."""
+    """A go/ tag on no module, a malformed one, and one version on two commits."""
     root = _copy(prepared, tmp_path / "toy")
-    command, candidate = TagName("go/cmd/tool/v2.0.0"), TagName("go/v2.0.0-rc1")
-    _tag(root, command, candidate)
-    found = _only(check_tags(root, _ref_lines(root, command)))
-    assert "go/cmd/tool is no released module" in found
-    found = _only(check_tags(root, _ref_lines(root, candidate)))
+    stray, candidate = TagName("go/cmd/v2.0.0"), TagName("go/v2.0.0-rc1")
+    _tag(root, stray, candidate)
+    remote = _remote(root, tmp_path / "remote.git")
+    found = check_tags(root, _ref_lines(root, *GO_TAGS, stray), remote)
+    assert any("go/cmd is no released module" in line for line in found)
+    found = _only(check_tags(root, _ref_lines(root, candidate), remote))
     assert "is no <directory>/vX.Y.Z" in found
     _replace(root, RelPath("README.md"), FileText("moved on\n"))
     head = commit(root, "after")
     _tag(root, TagName("go/v2.0.0"))
-    found = _only(check_tags(root, _ref_lines(root, TagName("v2.0.0"), TagName("go/v2.0.0"))))
+    found = _only(check_tags(root, _ref_lines(root, ROOT_TAG, TagName("go/v2.0.0")), remote))
     assert "release 2.0.0's tags name 2 commits" in found
     branch = RefLine(f"refs/heads/main {head} refs/heads/main {_NO_OBJECT}")
     deletion = RefLine(f"(delete) {_NO_OBJECT} refs/tags/go/v2.0.0 {head}")
-    assert not check_tags(root, [branch, deletion])
+    assert not check_tags(root, [branch, deletion], remote)
+
+
+@pytest.mark.process(_DRIVES_GIT_AND_GO)
+@pytest.mark.usefixtures("offline")
+def test_a_release_push_out_of_order_is_refused(prepared: Path, tmp_path: Path) -> None:
+    """The go/ tags go together; v2.0.0 goes alone, once GitHub holds them all on its commit.
+
+    GitHub creates no event for tags when more than three are pushed at once, and
+    v2.0.0 is the tag the release workflow runs on.
+    """
+    empty = _remote(prepared, tmp_path / "empty.git")
+    found = _only(check_tags(prepared, _ref_lines(prepared, *GO_TAGS[:-1]), empty))
+    assert "release 2.0.0's go/ tags go together: this push leaves out go/cmd/tool/v2.0.0" in found
+    early = check_tags(prepared, _ref_lines(prepared, ROOT_TAG), empty)
+    assert len(early) == len(GO_TAGS)
+    assert all(line.startswith("v2.0.0 is pushed before go/") for line in early)
+    partial = _remote(prepared, tmp_path / "partial.git", *GO_TAGS[:-1])
+    found = _only(check_tags(prepared, _ref_lines(prepared, ROOT_TAG), partial))
+    assert found.startswith(f"v2.0.0 is pushed before go/cmd/tool/v2.0.0 is on {partial} at ")
+    holding = _remote(prepared, tmp_path / "holding.git", *GO_TAGS)
+    together = check_tags(prepared, _ref_lines(prepared, *RELEASE_TAGS), holding)
+    assert "v2.0.0 goes alone, after the release's go/ tags" in together
+
+
+@pytest.mark.process(_DRIVES_GIT_AND_GO)
+@pytest.mark.usefixtures("offline")
+def test_more_than_three_release_tags_in_a_push_are_refused(prepared: Path, tmp_path: Path) -> None:
+    """GitHub creates no event for tags when more than three are pushed at once: four are named."""
+    remote = _remote(prepared, tmp_path / "remote.git", *GO_TAGS)
+    found = check_tags(prepared, _ref_lines(prepared, *RELEASE_TAGS), remote)
+    assert any(line.startswith("4 release tags in one push") for line in found)
+    three = check_tags(prepared, _ref_lines(prepared, *GO_TAGS), remote)
+    assert not any("release tags in one push" in line for line in three)
 
 
 @pytest.mark.process(_DRIVES_GIT_AND_GO)
 @pytest.mark.usefixtures("offline")
 def test_a_commit_recording_no_release_version_is_refused(tmp_path: Path) -> None:
-    """Before write, no go.sum records what a tag would publish: the commit check names each."""
+    """Before move-major and write: no go.sum records a tag, nor can go fetch the command at it.
+
+    Go takes a tag of major 2 or more only for a module whose path ends in that
+    major, which the command's does once move-major has moved it.
+    """
     root = _toy(tmp_path, _toy_files())
     found = check_commit(root, commit_of(root, Revision("HEAD")), None)
-    assert len(found) == len((CORE, EXCEL))
-    assert all("no go.sum records what its tag publishes" in line for line in found)
+    assert len(found) == len((CORE, EXCEL, TOOL))
+    unrecorded = [line for line in found if "no go.sum records what its tag publishes" in line]
+    assert len(unrecorded) == len((CORE, EXCEL))
+    (fetch,) = (line for line in found if line not in unrecorded)
+    assert fetch.startswith(f"go mod download {TOOL}@v2.0.0: ")
 
 
 @pytest.mark.process(_DRIVES_GIT_AND_GO)
@@ -367,11 +445,102 @@ def test_a_commit_recording_no_release_version_is_refused(tmp_path: Path) -> Non
 def test_check_serves_the_prepared_versions_and_builds(
     prepared: Path, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
-    """The tree hashes as recorded, so both versions are served and every module builds."""
+    """The tree hashes as recorded: versions served, every module built, the command installed."""
     assert check(prepared) == 0
     out = capsys.readouterr().out
     assert f"{CORE}@v2.0.0 served from the tree" in out
     assert f"{EXCEL_2}@v2.0.0 served from the tree" in out
+    assert f"go install {TOOL_2}@v2.0.0 installs the command tool" in out
+
+
+@pytest.mark.process(_DRIVES_GIT_AND_GO)
+@pytest.mark.usefixtures("offline")
+def test_the_install_rehearsal_stays_off_the_network(
+    prepared: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An install asks a proxy and a checksum database: the rehearsal's route holds neither.
+
+    The machine's own proxy is one that does not exist, so a rehearsal handed it
+    would carry its name.
+    """
+    monkeypatch.setenv("GOPROXY", "https://proxy.invalid,direct")
+    real, seen = go_release.run_go, list[Environment]()
+
+    def run_go(cwd: Path, *words: CommandWord, env: Environment) -> Ran:
+        if words[:1] == (W("install"),):
+            seen.append(env)
+        return real(cwd, *words, env=env)
+
+    monkeypatch.setattr(go_release, "run_go", run_go)
+    assert check(prepared) == 0
+    (env,) = seen
+    assert env[EnvName("GOSUMDB")] == "off"
+    built, cache, after = env[EnvName("GOPROXY")].split(",")
+    assert built.startswith("file://")
+    assert built.endswith("/build/cache/download")
+    assert cache.startswith("file://")
+    assert after == "off"
+
+
+def _module_proxy(root: Path, path: GoModule, version: GoVersion) -> Path:
+    """Write a file proxy serving one module version of ``package third``, and return its root."""
+    versions = root / path / "@v"
+    versions.mkdir(parents=True)
+    manifest = f"module {path}\n\ngo 1.26.0\n"
+    source = "package third\n\nconst Third = 3\n"
+    _ = (versions / f"{version}.info").write_text(
+        f'{{"Version": "{version}", "Time": "2000-01-01T00:00:00Z"}}', encoding="utf-8"
+    )
+    _ = (versions / f"{version}.mod").write_text(manifest, encoding="utf-8")
+    _ = (versions / "list").write_text(f"{version}\n", encoding="utf-8")
+    with ZipFile(versions / f"{version}.zip", "w") as bundle:
+        bundle.writestr(f"{path}@{version}/go.mod", manifest)
+        bundle.writestr(f"{path}@{version}/third.go", source)
+    return root
+
+
+@pytest.mark.process(_DRIVES_GIT_AND_GO)
+@pytest.mark.usefixtures("offline")
+def test_the_rehearsal_takes_third_party_modules_from_the_builds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """On an empty module cache the builds fetch a third-party module, and the rehearsal reads it.
+
+    The module is on the machine's proxy alone, which the rehearsal never asks:
+    without what the builds fetched, its lookup is disabled and the command does
+    not install.
+    """
+    third, version = GoModule("example.com/third"), GoVersion("v1.0.0")
+    monkeypatch.setenv("GOPROXY", f"file://{_module_proxy(tmp_path / 'proxy', third, version)}")
+    monkeypatch.setenv("GOSUMDB", "off")
+    monkeypatch.setenv("GOMODCACHE", str(tmp_path / "modules"))
+    files = _toy_files()
+    manifest, main = RelPath("go/cmd/tool/go.mod"), RelPath("go/cmd/tool/main.go")
+    files[manifest] = FileText(files[manifest] + f"\nrequire {third} {version}\n")
+    files[main] = FileText(files[main].replace(f'\t"{EXCEL}"\n', f'\t"{EXCEL}"\n\t"{third}"\n'))
+    files[main] = FileText(files[main].replace("excel.Doubled)", "excel.Doubled, third.Third)"))
+    root = _toy(tmp_path / "toy", files)
+    assert move_major(root) == 0
+    assert write(root) == 0
+    _ = commit(root, "prepare 2.0.0")
+    assert check(root) == 0
+    assert f"go install {TOOL_2}@v2.0.0 installs the command tool" in capsys.readouterr().out
+
+
+@pytest.mark.process(_DRIVES_GIT_AND_GO)
+@pytest.mark.usefixtures("offline")
+def test_check_installs_the_command_as_a_consumer_does(
+    prepared: Path, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """A replace in the command's go.mod builds in its directory, but go install refuses it."""
+    root = _copy(prepared, tmp_path / "toy")
+    manifest = root / "go/cmd/tool/go.mod"
+    text = manifest.read_text(encoding="utf-8")
+    _ = manifest.write_text(text + f"\nreplace {EXCEL_2} v2.0.0 => ../../excel\n", encoding="utf-8")
+    assert check(root) == 1
+    assert f"go install {TOOL_2}@v2.0.0 does not install the command tool" in (
+        capsys.readouterr().out
+    )
 
 
 @pytest.mark.process(_DRIVES_GIT_AND_GO)
@@ -435,10 +604,38 @@ def test_the_published_modules_are_held_to_the_tags_lines(
     assert all(f"{CORE}@v2.0.0" in line for line in found)
 
 
+@pytest.mark.process(_DRIVES_GIT_AND_GO)
+@pytest.mark.usefixtures("offline")
+def test_the_published_modules_are_checked_before_the_release_tag(
+    prepared: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Between the two pushes only the go/ tags exist: they name the commit the check reads."""
+    root = _copy(prepared, tmp_path / "toy")
+    _ = git(root, "tag", "-d", ROOT_TAG)
+    _github_through(monkeypatch, prepared)
+    assert not check_published(root, RELEASE)
+
+
+@pytest.mark.process(_DRIVES_GIT_AND_GO)
+@pytest.mark.usefixtures("offline")
+def test_the_published_command_is_held_to_its_tagged_commit(
+    prepared: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No go.sum records the command, so GitHub's copy is held to the tagged commit's own."""
+    moved = _copy(prepared, tmp_path / "moved")
+    main = moved / "go/cmd/tool/main.go"
+    _ = main.write_text(main.read_text(encoding="utf-8") + "\n// Moved.\n", encoding="utf-8")
+    _ = commit(moved, "moved")
+    _tag(moved, *RELEASE_TAGS[1:])
+    _github_through(monkeypatch, moved)
+    found = _only(check_published(prepared, RELEASE))
+    assert found.startswith(f"GitHub serves {TOOL_2}@v2.0.0 as ")
+
+
 def test_check_published_refuses_a_version_that_is_none() -> None:
     """The command line takes X.Y.Z and nothing else."""
     with pytest.raises(SystemExit) as stopped:
-        _ = go_release.main([go_release.W("check-published"), go_release.W("v2.0")])
+        _ = go_release.main([W("check-published"), W("v2.0")])
     assert stopped.value.code == _CANNOT_PARSE
 
 
@@ -483,6 +680,7 @@ def test_the_dry_run_rehearses_a_prepared_commit_end_to_end(
     out = capsys.readouterr().out
     assert f"GitHub serves {CORE}@v2.0.0-" in out
     assert f"GitHub serves {EXCEL_2}@v2.0.0-" in out
+    assert f"GitHub serves {TOOL_2}@v2.0.0-" in out
 
 
 @pytest.mark.process(_DRIVES_GIT_AND_GO)
@@ -520,7 +718,7 @@ def test_the_dry_run_of_a_commit_the_route_cannot_serve_is_a_finding(
     elsewhere = _toy(tmp_path / "elsewhere", _toy_files())
     _github_through(monkeypatch, elsewhere)
     found = check_publishable(prepared, commit_of(prepared, Revision("v2.0.0")))
-    assert len(found) == len((CORE, EXCEL_2))
+    assert len(found) == len((CORE, EXCEL_2, TOOL_2))
     assert all(line.startswith("go mod download ") for line in found)
 
 
