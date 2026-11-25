@@ -23,6 +23,9 @@ these:
 * the changelog names none of the project's probes (``probe_mentions``): a
   probe is an investigation's instrument, never what users get, so an entry
   states its change and the gate or test that holds it;
+* an entry under ``## [Unreleased]`` is a bold lead and one line, two at most
+  (``overlong_entries``): at most three source lines of at most 80 columns, opening
+  with the lead; a released section is left as it was written;
 * the ``## [Unreleased]`` section carries each of its ``###`` category headers
   once, and every one is a Keep-a-Changelog category: a second
   ``### Changed`` is where an entry lands out of sight of the first;
@@ -42,10 +45,10 @@ Exit codes:
   0: a changed surface record has its CHANGELOG edit, a correction adds no
      entry, the section is sound, and a release the branch prepares is cut.
   1: a branch that changes a surface record and leaves ``CHANGELOG.md`` alone,
-     a correction that adds an entry, a probe the changelog names, no
-     ``## [Unreleased]`` section, a category header repeated under it, a header
-     there that is not a category, a release the CHANGELOG does not cut from its
-     base, or two releases.
+     a correction that adds an entry, an entry under ``## [Unreleased]`` over the
+     size, a probe the changelog names, no ``## [Unreleased]`` section, a category
+     header repeated under it, a header there that is not a category, a release the
+     CHANGELOG does not cut from its base, or two releases.
   2: git cannot answer (no comparison ref, no merge-base, no top level), or
      ``CHANGELOG.md`` cannot be read as UTF-8, or, on a branch preparing a
      release or correcting the changelog, the merge-base's ``CHANGELOG.md``
@@ -85,7 +88,7 @@ if TYPE_CHECKING:
 DESCRIPTION = (
     "Require the CHANGELOG entry a changed public-surface record owes, hold a correction to "
     + "adding none, refuse a probe the CHANGELOG names, hold [Unreleased] to one header per "
-    + "category, and hold a release preparation to its cut."
+    + "category and its entries to their size, and hold a release preparation to its cut."
 )
 TOOL = Prose("check-changelog")
 
@@ -122,6 +125,11 @@ VersionNumber = NewType("VersionNumber", int)
 EntryCount = NewType("EntryCount", int)
 # An entry is a list item at the top level, inside no quote and no other item.
 _ENTRY_WITHIN = ("list",)
+# An entry's size: a bold lead and one line, two at most, the width its lines are kept to.
+_ENTRY_LINES = 3
+_ENTRY_COLUMNS = 80
+# An entry's opening, a list marker and the bold lead.
+_BOLD_LEAD = re.compile(r"[-*+] \*\*\S")
 # The word for the project's probes, in any form.
 _PROBE_WORD = re.compile(r"prob(?:e|ing)", re.IGNORECASE)
 # The other senses the changelog describes, each as written, wrapped anywhere: a
@@ -330,6 +338,59 @@ def correction_refused(changelog: Prose, base: Prose) -> bool:
         ),
         "A correction removes or rewrites entries and adds none; an entry belongs to the",
         "change that owes it, on a branch of its own.",
+    ]
+    _ = sys.stderr.write("\n".join(lines) + "\n")
+    return True
+
+
+class Overlong(NamedTuple):
+    """An unreleased entry over its size: the line it opens on, and each way it is."""
+
+    line: PositiveInt
+    reasons: tuple[Prose, ...]
+
+
+def overlong_entries(changelog: Prose) -> list[Overlong]:
+    """Give each entry under ``[Unreleased]`` that is more than a bold lead and two lines.
+
+    An entry is a top-level list item (``_ENTRY_WITHIN``) of a section headed
+    ``## [Unreleased]``, its nested list included; read as CommonMark, so a wrapped
+    line counts as the source writes it.  A released section is as it was written.
+    """
+    lines = commonmark_lines(changelog)
+    unreleased = sections(changelog, Prose(UNRELEASED_HEADER))
+    found: list[Overlong] = []
+    for block in blocks(changelog):
+        if block.kind != "item" or block.within != _ENTRY_WITHIN:
+            continue
+        if not any(section.first <= block.first < section.end for section in unreleased):
+            continue
+        source = list(lines[block.first - 1 : block.last])
+        while not source[-1].strip(_BLANK):
+            _ = source.pop()
+        reasons: list[Prose] = []
+        if len(source) > _ENTRY_LINES:
+            reasons.append(Prose(f"{len(source)} lines, {_ENTRY_LINES} allowed"))
+        widest = max(len(line) for line in source)
+        if widest > _ENTRY_COLUMNS:
+            reasons.append(Prose(f"a line of {widest} columns, {_ENTRY_COLUMNS} allowed"))
+        if _BOLD_LEAD.match(source[0]) is None:
+            reasons.append(Prose("no bold lead"))
+        if reasons:
+            found.append(Overlong(block.first, tuple(reasons)))
+    return found
+
+
+def overlong_refused(changelog: Prose) -> bool:
+    """Write the refusal for an entry over its size; say if there was one."""
+    over = overlong_entries(changelog)
+    if not over:
+        return False
+    lines = [
+        f"check-changelog: FAIL: an entry under '{UNRELEASED_HEADER}' is over its size:",
+        *(f"  line {entry.line}: {', '.join(entry.reasons)}" for entry in over),
+        "An entry is a bold lead and one line, two at most; the detail lives in the commit",
+        "message.",
     ]
     _ = sys.stderr.write("\n".join(lines) + "\n")
     return True
@@ -580,6 +641,7 @@ def main() -> ExitStatus:
     refused = [
         headers_refused(unreleased_headers(text)),
         probes_refused(text),
+        overlong_refused(text),
         entry_refused(branch),
         versions_refused(prepared),
         base_text is not None and len(prepared) == 1 and cut_refused(prepared[0], text, base_text),
